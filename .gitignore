@@ -10,6 +10,7 @@ experiments/
 checkpoints/
 logs/
 diagnostics_runs/
+planning_repair_runs/
 archive/
 results/**/*.pt
 results/**/*.log
