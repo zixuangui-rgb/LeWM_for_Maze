@@ -1,0 +1,17 @@
+{
+  "description": "Default Maze-JEPA diagnostics protocol. Override values from CLI when needed.",
+  "layers": ["spatial_flat", "spatial_pool", "encoded", "embedding"],
+  "max_train_per_size": 80,
+  "max_eval_per_size": 100,
+  "states_per_maze": 24,
+  "probe_epochs": 25,
+  "probe_hidden_dim": 512,
+  "probe_batch_size": 256,
+  "probe_lr": 0.001,
+  "metric_states_per_maze": 24,
+  "metric_pairs_per_maze": 128,
+  "rollout_episodes_per_size": 40,
+  "rollout_horizons": [1, 2, 3, 5, 8, 10],
+  "failure_episodes_per_size": 100,
+  "seen_max_size": 21
+}

@@ -9,6 +9,7 @@ outputs/
 experiments/
 checkpoints/
 logs/
+diagnostics_runs/
 archive/
 results/**/*.pt
 results/**/*.log
