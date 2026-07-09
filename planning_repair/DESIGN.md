@@ -45,6 +45,22 @@
 
 ## 实验矩阵
 
+### Mandatory Controls
+
+本轮实验最容易犯的错误是：`p2_full` 比旧 checkpoint 好，就直接归因给 aux/prefix。但新模型同时多训练了若干 step，并且默认 `seq_len=8`，所以必须加入继续训练对照。
+
+默认 `configs/default.json` 固定 5 个 variant，所有 variant 都从同一个 `baseline_ckpt` 出发，使用同一个 train/eval manifest、seed、steps、batch size、seq_len 和 optimizer；唯一变化是修复 loss 的开关。
+
+| Variant | 证明作用 | 新增 repair loss |
+|---|---|---|
+| `continued_control` | 排除“多训练 / seq_len=8 / optimizer exposure”带来的收益 | none |
+| `p1_info_aux` | 单独验证 projector 信息墙是否可修 | xy + valid + BFS + reachability |
+| `p15_action_ranking` | 单独验证 listwise action ranking 是否修局部排序 | P1 + action |
+| `p2_prefix_only` | 单独验证 prefix predictor 是否修 rollout drift | prefix |
+| `p2_full` | 验证综合方案是否能把三堵墙一起往下压 | P1 + action + prefix |
+
+因此所有 repair claim 都必须优先和 `continued_control` 比，而不是只和 frozen baseline 比。
+
 ### P0: Short-horizon receding CEM
 
 目的：先验证 rollout 漂移是否是可被 planner 工程缓解的。
@@ -114,9 +130,10 @@ Aux heads 直接加在 post-projector embedding 上：
 
 判据：
 
-- diagnostics 中 closed-loop `nn_bfs_error` 下降；
+- `eval_prefix_rollout.py` 中 prefix-direct `nn_bfs_error` 下降；
 - `predictor_wrong / long_path / loop_or_cycle` 下降；
 - `eval_prefix_planner.py` 的 SR 优于普通 horizon-12 recursive CEM。
+- 如果旧 diagnostics 中 one-step closed-loop `nn_bfs_error` 也下降，说明共享 backbone/predictor 也被间接稳定化；如果只有 prefix-direct 指标下降，则结论应表述为“prefix planner 绕开了递归漂移”，不能说旧 one-step predictor 已被修复。
 
 ### P4: Spatial patch-token planner
 

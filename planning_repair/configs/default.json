@@ -6,6 +6,7 @@
     "eval_manifest": "data/splits/unisize_eval_manifest.jsonl",
     "baseline_ckpt": "checkpoints/backbones/unisize_dim256_setb_seqlen_ablation_20260708_seqlen4.pt",
     "repair_ckpt": "checkpoints/planning_repair/planning_aligned_seqlen8.pt",
+    "variant_ckpt_template": "checkpoints/planning_repair/{name}.pt",
     "p0_output": "planning_repair_runs/p0_receding/results.json",
     "aux_eval_output": "planning_repair_runs/aux_action_head/results.json",
     "prefix_eval_output": "planning_repair_runs/prefix_planner/results.json"
@@ -25,6 +26,10 @@
     "lr": 0.001,
     "weight_decay": 0.0,
     "log_every": 500,
+    "lambda_sigreg": 0.09,
+    "lambda_encoded_abs": 0.1,
+    "lambda_encoded_rel": 1.0,
+    "lambda_encoded_goal": 0.5,
     "lambda_emb_agent": 0.25,
     "lambda_emb_goal": 0.25,
     "lambda_valid": 0.5,
@@ -35,17 +40,76 @@
     "lambda_prefix": 0.2,
     "prefix_horizon": 5
   },
+  "variants": [
+    {
+      "name": "continued_control",
+      "description": "same extra training budget, no new repair losses",
+      "train": {
+        "lambda_emb_agent": 0.0,
+        "lambda_emb_goal": 0.0,
+        "lambda_valid": 0.0,
+        "lambda_action": 0.0,
+        "lambda_bfs": 0.0,
+        "lambda_reach": 0.0,
+        "lambda_prefix": 0.0
+      }
+    },
+    {
+      "name": "p1_info_aux",
+      "description": "post-projector information repair, no action ranking",
+      "train": {
+        "lambda_action": 0.0,
+        "lambda_prefix": 0.0
+      }
+    },
+    {
+      "name": "p15_action_ranking",
+      "description": "information repair plus listwise optimal-action ranking",
+      "train": {
+        "lambda_prefix": 0.0
+      }
+    },
+    {
+      "name": "p2_prefix_only",
+      "description": "multi-horizon prefix predictor without embedding aux repair",
+      "train": {
+        "lambda_emb_agent": 0.0,
+        "lambda_emb_goal": 0.0,
+        "lambda_valid": 0.0,
+        "lambda_action": 0.0,
+        "lambda_bfs": 0.0,
+        "lambda_reach": 0.0
+      }
+    },
+    {
+      "name": "p2_full",
+      "description": "information repair, action ranking, and prefix prediction",
+      "train": {}
+    }
+  ],
+  "baseline_diagnostics": {
+    "run_id": "planning_repair_baseline",
+    "out_dir": "diagnostics_runs"
+  },
   "diagnostics": {
     "run_id": "planning_repair_seqlen8",
     "out_dir": "diagnostics_runs",
     "max_train_per_size": 80,
     "max_eval_per_size": 100,
     "states_per_maze": 24,
-    "probe_epochs": 25
+    "probe_epochs": 25,
+    "rollout_episodes_per_entry": 1
   },
   "aux_eval": {
     "max_per_size": 0,
     "limit": 0
+  },
+  "prefix_rollout": {
+    "horizons": "1,2,3,5",
+    "episodes_per_entry": 1,
+    "max_per_size": 40,
+    "limit": 0,
+    "seen_max_size": 21
   },
   "prefix_eval": {
     "horizon": 5,
@@ -54,6 +118,8 @@
     "score_all_prefixes": true,
     "max_per_size": 0,
     "limit": 0
+  },
+  "summary": {
+    "output": "planning_repair_runs/ablation_summary.md"
   }
 }
-

@@ -47,6 +47,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--train-manifest", default="data/splits/unisize_train_manifest.jsonl")
     parser.add_argument("--eval-manifest", default="data/splits/unisize_eval_manifest.jsonl")
     parser.add_argument("--init-model-ckpt", default=None)
+    parser.add_argument("--variant-name", default="planning_aligned")
     parser.add_argument(
         "--output",
         default="checkpoints/planning_repair/planning_aligned.pt",
@@ -339,6 +340,22 @@ def main() -> None:
         "training_summary": summary,
         "model_metadata": model_meta,
         "holdout": overlap,
+        "repair_protocol": {
+            "variant_name": args.variant_name,
+            "train_manifest": args.train_manifest,
+            "eval_manifest": args.eval_manifest,
+            "init_model_ckpt": args.init_model_ckpt,
+            "same_backbone_class": "scripts.train.train_dim256.Unisize256",
+            "strict_old_diagnostics_compatible": True,
+            "active_components": {
+                "embedding_xy": args.lambda_emb_agent > 0.0 or args.lambda_emb_goal > 0.0,
+                "valid_action": args.lambda_valid > 0.0,
+                "action_ranking": args.lambda_action > 0.0,
+                "bfs_distance": args.lambda_bfs > 0.0,
+                "reachability": args.lambda_reach > 0.0,
+                "prefix_predictor": args.lambda_prefix > 0.0,
+            },
+        },
     }
     if prefix_predictor is not None and prefix_config is not None:
         checkpoint["prefix_state_dict"] = prefix_predictor.state_dict()

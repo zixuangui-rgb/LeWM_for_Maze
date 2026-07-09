@@ -28,6 +28,7 @@ from planning_repair.common import (
     load_backbone_from_repair_ckpt,
     observe_state,
     read_jsonl,
+    require_trained_component,
     set_agent_state,
     set_seed,
     summarize_navigation,
@@ -54,6 +55,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--progress-every", type=int, default=100)
+    parser.add_argument(
+        "--allow-untrained-prefix",
+        action="store_true",
+        help="Only for smoke tests; do not use for scientific comparisons.",
+    )
+    parser.add_argument(
+        "--allow-untrained-aux",
+        action="store_true",
+        help="Only for smoke tests with terminal-scorer=aux_bfs.",
+    )
     return parser.parse_args()
 
 
@@ -204,7 +215,18 @@ def main() -> None:
     prefix_predictor = load_prefix_predictor(data, device)
     if prefix_predictor is None:
         raise ValueError("checkpoint does not contain a prefix predictor")
+    require_trained_component(
+        data,
+        component="prefix",
+        allow_untrained=args.allow_untrained_prefix,
+    )
     aux_heads = load_aux_heads(data, device)
+    if args.terminal_scorer == "aux_bfs":
+        require_trained_component(
+            data,
+            component="aux_bfs",
+            allow_untrained=args.allow_untrained_aux,
+        )
     entries = grouped_limit(
         read_jsonl(args.manifest),
         max_per_size=args.max_per_size,

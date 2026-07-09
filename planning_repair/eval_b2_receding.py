@@ -23,6 +23,7 @@ from planning_repair.common import (
     json_dump,
     load_backbone_from_repair_ckpt,
     read_jsonl,
+    require_trained_component,
     set_seed,
     summarize_navigation,
 )
@@ -56,6 +57,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--progress-every", type=int, default=100)
+    parser.add_argument(
+        "--allow-untrained-aux",
+        action="store_true",
+        help="Only for smoke tests; do not use for scientific comparisons.",
+    )
     return parser.parse_args()
 
 
@@ -75,6 +81,7 @@ def build_scorers(
     checkpoint_data: dict[str, Any],
     device: torch.device,
     distance_head_ckpt: str | None,
+    allow_untrained_aux: bool,
 ) -> dict[str, ScoreFn]:
     scorers: dict[str, ScoreFn] = {}
     aux = load_aux_heads(checkpoint_data, device)
@@ -91,6 +98,11 @@ def build_scorers(
         elif name == "aux_bfs":
             if aux is None:
                 raise ValueError("model checkpoint does not contain aux heads for aux_bfs")
+            require_trained_component(
+                checkpoint_data,
+                component="aux_bfs",
+                allow_untrained=allow_untrained_aux,
+            )
             scorers[name] = lambda z, g, aux=aux: aux(z)["bfs_distance_norm"]
         else:
             raise ValueError(f"unknown scorer: {name}")
@@ -156,6 +168,7 @@ def main() -> None:
         checkpoint_data,
         device,
         args.distance_head_ckpt,
+        args.allow_untrained_aux,
     )
     horizons = parse_horizons(args.horizons)
     entries = grouped_limit(

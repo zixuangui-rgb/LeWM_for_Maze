@@ -28,6 +28,7 @@ from planning_repair.common import (
     load_backbone_from_repair_ckpt,
     observe_state,
     read_jsonl,
+    require_trained_component,
     set_agent_state,
     set_seed,
     summarize_navigation,
@@ -50,6 +51,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--progress-every", type=int, default=100)
+    parser.add_argument(
+        "--allow-untrained-head",
+        action="store_true",
+        help="Only for smoke tests; do not use for scientific comparisons.",
+    )
     return parser.parse_args()
 
 
@@ -147,6 +153,11 @@ def main() -> None:
     aux_heads = load_aux_heads(data, device)
     if aux_heads is None:
         raise ValueError("checkpoint does not contain aux heads")
+    require_trained_component(
+        data,
+        component="aux_action",
+        allow_untrained=args.allow_untrained_head,
+    )
     entries = grouped_limit(
         read_jsonl(args.manifest),
         max_per_size=args.max_per_size,

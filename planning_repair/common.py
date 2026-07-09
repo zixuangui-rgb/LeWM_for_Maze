@@ -158,6 +158,36 @@ def read_json(path: str | Path) -> Any:
         return json.load(f)
 
 
+def loss_weight(checkpoint_data: dict[str, Any], name: str) -> float:
+    """Return a saved training loss weight, defaulting to zero for old ckpts."""
+
+    args = checkpoint_data.get("training_args", {})
+    value = args.get(name, 0.0) if isinstance(args, dict) else 0.0
+    return float(value or 0.0)
+
+
+def require_trained_component(
+    checkpoint_data: dict[str, Any],
+    *,
+    component: str,
+    allow_untrained: bool = False,
+) -> None:
+    """Guard against evaluating random heads from ablation/control checkpoints."""
+
+    required_loss = {
+        "aux_action": "lambda_action",
+        "aux_bfs": "lambda_bfs",
+        "prefix": "lambda_prefix",
+    }.get(component)
+    if required_loss is None:
+        raise ValueError(f"unknown component: {component}")
+    if loss_weight(checkpoint_data, required_loss) <= 0.0 and not allow_untrained:
+        raise ValueError(
+            f"{component} was not trained in this checkpoint "
+            f"({required_loss}=0). Pass the explicit allow flag only for smoke tests."
+        )
+
+
 def compute_maze_supervision(
     *,
     states: torch.Tensor,
@@ -330,13 +360,15 @@ __all__ = [
     "json_dump",
     "load_backbone_from_repair_ckpt",
     "load_manifest_pair",
+    "loss_weight",
     "observe_state",
     "parse_int_list",
     "read_json",
+    "read_jsonl",
+    "require_trained_component",
     "set_agent_state",
     "set_seed",
     "size_bucket",
     "summarize_navigation",
     "valid_moving_actions",
 ]
-
