@@ -1,0 +1,138 @@
+# Base configuration for all experiments.
+# Individual experiment configs should override specific fields.
+
+# ── Maze environment defaults ──
+env:
+  type: procgen_maze
+  height: 11
+  width: 11
+  observation_channels: 5
+  p_noise: 0.0
+  p_noop: 0.0
+  p_action_turn: 0.0
+  p_action_stay: 0.0
+  noise_placement: empty
+  num_actions: 5
+  observation_dtype: float32
+  max_episode_steps: null
+  render_mode: ansi
+  resample_maze_per_sequence: true
+  walls: []
+  train_virtual_border: null
+  validation_virtual_border: null
+  virtual_border_pass_through: 0.95
+
+# ── Data defaults ──
+data:
+  batch_size: 256
+  sequence_length: 8
+  context_length: null
+  batch_sample_strategy: same_within_batch
+  num_workers: 4
+  persistent_workers: true
+  prefetch_factor: null
+  validation_batches: 4
+
+# ── Model defaults ──
+model:
+  type: lewm_cnn
+  latent_dim: 64
+  cnn_channels: [32, 64, 128]
+  effective_model_dim: 64
+  latent_batch_norm: true
+  embedding_stage: post_bn
+  sigreg_stage: post_bn
+  predictor_heads: 4
+
+# ── Optimizer defaults ──
+optimizer:
+  lr: 0.001
+  variance_lr: null
+  sigreg_warmup_lr_factor: 1.0
+  weight_decay: 0.0
+  grad_clip_val: 1.0
+
+# ── Loss defaults ──
+loss:
+  type: lewm
+  sigreg_weight: 0.09
+  sigreg_knots: 17
+  sigreg_num_proj: 1024
+
+# ── Metrics defaults ──
+metrics:
+  log_gt_pos_distribution: true
+  log_layer_weight_stats: false
+  position_probe_enabled: true
+  position_probe_ridge: 0.001
+
+# ── Trainer defaults ──
+trainer:
+  accelerator: auto
+  devices: 1
+  max_steps: 5000
+  log_every_n_steps: 50
+  val_check_interval: 250
+  enable_checkpointing: true
+  enable_model_summary: true
+  compile_model: false
+
+# ── Runtime monitor ──
+runtime_monitor:
+  enabled: true
+  log_every_n_steps: 50
+  warmup_steps: 1
+  synchronize_device: false
+  log_system: true
+  log_cuda_memory: true
+  log_gpu_utilization: true
+
+# ── Fixed-size experiment settings ──
+fixed_size:
+  maze_size: 11
+  train_seed_start: 0
+  train_num_seeds: 2000
+  val_seed_start: 2000
+  val_num_seeds: 200
+  test_seed_start: 2200
+  test_num_seeds: 200
+
+# ── Size-OOD experiment settings ──
+size_ood:
+  train_sizes: [7, 9, 11]
+  test_id_sizes: [7, 9, 11]
+  test_ood_sizes: [13, 15]
+  all_sizes: [7, 9, 11, 13, 15]
+  train_seed_start: 0
+  train_seeds_per_size: 800
+  test_id_seed_start: 1000
+  test_id_seeds_per_size: 200
+  test_ood_seed_start: 2000
+  test_ood_seeds_per_size: 200
+
+# ── Probe settings ──
+probe:
+  ridge_alpha: 0.001
+  mlp_hidden_dim: 128
+  mlp_layers: 2
+  train_fraction: 0.8
+  shuffle_baseline: true
+  num_shuffle_trials: 5
+
+# ── CEM planner settings ──
+planner:
+  cem:
+    horizon: 8
+    num_candidates: 128
+    num_iterations: 3
+    num_elites: 16
+    top_k: 10
+    alpha: 0.1
+    temperature: 1.0
+
+# ── Seed ──
+seed: 0
+
+# ── SwanLab logging ──
+swanlab:
+  enabled: false

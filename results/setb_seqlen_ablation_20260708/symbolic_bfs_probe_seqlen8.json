@@ -1,0 +1,66 @@
+{
+  "model_ckpt": "checkpoints/backbones/unisize_dim256_setb_seqlen_ablation_20260708_seqlen8.pt",
+  "train_manifest": "data/splits/unisize_train_manifest.jsonl",
+  "eval_manifest": "data/splits/unisize_eval_manifest.jsonl",
+  "sizes": [
+    9,
+    11,
+    13,
+    15,
+    17,
+    19,
+    21
+  ],
+  "episodes_per_size": 100,
+  "by_size": {
+    "9": {
+      "n": 100,
+      "sr": 1.0,
+      "pos_ok": 1.0,
+      "num_success": 100,
+      "num_failure": 0
+    },
+    "11": {
+      "n": 100,
+      "sr": 0.99,
+      "pos_ok": 0.99,
+      "num_success": 99,
+      "num_failure": 1
+    },
+    "13": {
+      "n": 100,
+      "sr": 0.97,
+      "pos_ok": 0.95,
+      "num_success": 97,
+      "num_failure": 3
+    },
+    "15": {
+      "n": 100,
+      "sr": 0.96,
+      "pos_ok": 0.93,
+      "num_success": 96,
+      "num_failure": 4
+    },
+    "17": {
+      "n": 100,
+      "sr": 0.97,
+      "pos_ok": 0.96,
+      "num_success": 97,
+      "num_failure": 3
+    },
+    "19": {
+      "n": 100,
+      "sr": 0.9,
+      "pos_ok": 0.81,
+      "num_success": 90,
+      "num_failure": 10
+    },
+    "21": {
+      "n": 100,
+      "sr": 0.79,
+      "pos_ok": 0.73,
+      "num_success": 79,
+      "num_failure": 21
+    }
+  }
+}

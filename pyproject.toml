@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hdwm"
+version = "0.1.0"
+description = "Hypothesis-Driven World Model experiments"
+requires-python = ">=3.10"
+dependencies = [
+    "gymnasium>=1.0",
+    "hydra-core>=1.3",
+    "lightning>=2.6",
+    "numpy>=1.26",
+    "pydantic>=2.0",
+    "swanlab>=0.7",
+    "torch>=2.0",
+]
+
+[project.optional-dependencies]
+dev = ["pre-commit>=3.7", "pytest>=8", "ruff>=0.8"]
+
+[tool.setuptools.packages.find]
+include = ["hdwm*"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# Standalone scripts that modify sys.path to import from sibling hdwm package.
+# E501 relaxed for research scripts with long Chinese report text.
+"experimental/**/*.py" = ["E402", "E501"]
