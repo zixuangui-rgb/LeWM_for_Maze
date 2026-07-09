@@ -62,7 +62,7 @@ def run_stage(script: str, extra: list[str]) -> None:
     cmd = [sys.executable, str(ROOT / "diagnostics" / script), *extra]
     print("\n" + "=" * 100)
     print(" ".join(cmd))
-    print("=" * 100)
+    print("=" * 100, flush=True)
     subprocess.run(cmd, cwd=ROOT, check=True)
 
 

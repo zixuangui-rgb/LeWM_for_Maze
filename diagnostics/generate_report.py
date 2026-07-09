@@ -4,8 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 from typing import Any
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from diagnostics.common import ensure_dir, read_json, run_dir
 
@@ -33,7 +38,7 @@ def fmt(value: Any, digits: int = 3) -> str:
 
 
 def metric_value(metrics: dict[str, Any], task: str) -> str:
-    if task == "bfs_distance_norm":
+    if task.endswith("_norm"):
         return fmt(metrics.get("rmse"))
     if task == "valid_action":
         return fmt(metrics.get("exact_match"))
@@ -59,9 +64,13 @@ def probe_section(probes: dict[str, Any] | None) -> str:
         "agent_y": 1,
         "goal_x": 2,
         "goal_y": 3,
-        "valid_action": 4,
-        "bfs_distance_norm": 5,
-        "optimal_action": 6,
+        "agent_x_norm": 4,
+        "agent_y_norm": 5,
+        "goal_x_norm": 6,
+        "goal_y_norm": 7,
+        "valid_action": 8,
+        "bfs_distance_norm": 9,
+        "optimal_action": 10,
     }
     filtered = [
         row

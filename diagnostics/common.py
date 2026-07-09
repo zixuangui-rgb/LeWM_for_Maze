@@ -65,7 +65,25 @@ def write_json(path: str | Path, data: Any) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
-        json.dump(data, f, indent=2, sort_keys=True)
+        json.dump(json_safe(data), f, indent=2, sort_keys=True, allow_nan=False)
+
+
+def json_safe(value: Any) -> Any:
+    """Convert tensors/arrays/scalars and non-finite floats into strict JSON."""
+
+    if isinstance(value, dict):
+        return {str(key): json_safe(val) for key, val in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_safe(item) for item in value]
+    if isinstance(value, np.ndarray):
+        return json_safe(value.tolist())
+    if isinstance(value, torch.Tensor):
+        return json_safe(value.detach().cpu().tolist())
+    if isinstance(value, np.generic):
+        return json_safe(value.item())
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    return value
 
 
 def read_json(path: str | Path) -> Any:
@@ -244,12 +262,16 @@ def load_lewm(path: str | Path, device: torch.device) -> Unisize256:
 def load_distance_head(path: str | Path, device: torch.device) -> DistanceHead:
     data = torch.load(path, map_location=device, weights_only=False)
     cfg = data.get("config", {})
+    state = data["head_state_dict"]
+    latent_dim = int(cfg["latent_dim"]) if "latent_dim" in cfg else infer_latent_dim_from_distance_state(state)
+    input_mode = str(cfg["input_mode"]) if "input_mode" in cfg else infer_distance_input_mode(state, latent_dim)
+    hidden_dims = list(cfg["hidden_dims"]) if "hidden_dims" in cfg else infer_net_hidden_dims(state)
     head = DistanceHead(
-        latent_dim=int(cfg.get("latent_dim", 256)),
-        hidden_dims=list(cfg.get("hidden_dims", [512, 256, 128])),
-        input_mode=str(cfg.get("input_mode", "concat")),
+        latent_dim=latent_dim,
+        hidden_dims=hidden_dims,
+        input_mode=input_mode,
     ).to(device)
-    head.load_state_dict(data["head_state_dict"])
+    head.load_state_dict(state, strict=True)
     head.eval()
     for param in head.parameters():
         param.requires_grad = False
@@ -259,15 +281,68 @@ def load_distance_head(path: str | Path, device: torch.device) -> DistanceHead:
 def load_qrl_head(path: str | Path, device: torch.device) -> QRLHead:
     data = torch.load(path, map_location=device, weights_only=False)
     cfg = data.get("config", {})
+    state = data["head_state_dict"]
+    latent_dim = int(cfg["latent_dim"]) if "latent_dim" in cfg else infer_latent_dim_from_qrl_state(state)
+    hidden_dims = list(cfg["hidden_dims"]) if "hidden_dims" in cfg else infer_net_hidden_dims(state)
     head = QRLHead(
-        latent_dim=int(cfg.get("latent_dim", 256)),
-        hidden_dims=list(cfg.get("hidden_dims", [512, 256, 128])),
+        latent_dim=latent_dim,
+        hidden_dims=hidden_dims,
+        temperature=float(cfg.get("temperature", 0.1)),
+        dropout=float(cfg.get("dropout", 0.0)),
     ).to(device)
-    head.load_state_dict(data["head_state_dict"])
+    head.load_state_dict(state, strict=True)
     head.eval()
     for param in head.parameters():
         param.requires_grad = False
     return head
+
+
+def infer_net_hidden_dims(state_dict: dict[str, torch.Tensor]) -> list[int]:
+    """Infer Sequential MLP hidden dimensions from saved Linear weights."""
+
+    linear_keys = sorted(
+        (
+            key
+            for key in state_dict
+            if key.startswith("net.") and key.endswith(".weight") and state_dict[key].ndim == 2
+        ),
+        key=lambda key: int(key.split(".")[1]),
+    )
+    if len(linear_keys) < 2:
+        raise ValueError("cannot infer metric-head hidden dims from checkpoint")
+    return [int(state_dict[key].shape[0]) for key in linear_keys[:-1]]
+
+
+def infer_latent_dim_from_qrl_state(state_dict: dict[str, torch.Tensor]) -> int:
+    if "src_proj.weight" in state_dict:
+        return int(state_dict["src_proj.weight"].shape[1])
+    raise ValueError("cannot infer QRL latent dim from checkpoint")
+
+
+def infer_latent_dim_from_distance_state(state_dict: dict[str, torch.Tensor]) -> int:
+    first = state_dict.get("net.0.weight")
+    if first is None:
+        raise ValueError("cannot infer DistanceHead latent dim from checkpoint")
+    input_dim = int(first.shape[1])
+    if input_dim % 2 == 0:
+        return input_dim // 2
+    return input_dim
+
+
+def infer_distance_input_mode(state_dict: dict[str, torch.Tensor], latent_dim: int) -> str:
+    first = state_dict.get("net.0.weight")
+    if first is None:
+        raise ValueError("cannot infer DistanceHead input mode from checkpoint")
+    input_dim = int(first.shape[1])
+    if input_dim == latent_dim:
+        return "diff"
+    if input_dim == latent_dim * 2:
+        return "concat"
+    if input_dim == latent_dim * 3:
+        return "concat_diff"
+    raise ValueError(
+        f"cannot infer DistanceHead input mode: input_dim={input_dim}, latent_dim={latent_dim}"
+    )
 
 
 def extract_layers_batch(

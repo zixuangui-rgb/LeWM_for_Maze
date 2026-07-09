@@ -9,13 +9,19 @@ measures how quickly predicted latents drift away from true future latents.
 from __future__ import annotations
 
 import argparse
+import sys
 import time
 from collections import defaultdict
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 import torch
 import torch.nn.functional as F
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from diagnostics.common import (
     add_common_args,

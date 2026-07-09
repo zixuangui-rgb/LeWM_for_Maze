@@ -60,8 +60,10 @@ BC-policy offline RL: 0.799
 
 | Task | 类型 | 科学含义 |
 | --- | --- | --- |
-| `agent_x/y` | 分类 | 是否知道自己在哪 |
-| `goal_x/y` | 分类 | 是否知道目标在哪 |
+| `agent_x/y` | per-size 分类 | 是否知道自己在哪 |
+| `goal_x/y` | per-size 分类 | 是否知道目标在哪 |
+| `agent_x/y_norm` | unified 回归 | 是否能跨尺寸泛化坐标读出 |
+| `goal_x/y_norm` | unified 回归 | 是否能跨尺寸泛化目标坐标读出 |
 | `valid_action` | 多标签 | 是否知道局部墙结构 |
 | `bfs_distance_norm` | 回归 | 是否编码 geodesic distance |
 | `optimal_action` | 分类/多最优 | 是否支持局部导航决策 |
@@ -95,6 +97,8 @@ Linear 和 MLP 都好：该信息稳定且易用。
 | Unified probe | 判断一个共享 probe 是否能跨 size 泛化到 23/25 |
 
 `spatial_flat` 因为维度随 size 变化，只做 per-size。`spatial_pool/encoded/embedding` 可以做 unified。
+
+Raw coordinate classification 只用于 per-size probes。Unified 跨尺寸诊断使用归一化坐标回归，因为训练尺寸最大到 21，而 OOD sizes 23/25 会出现训练集中不存在的原始坐标类别。
 
 ## 7. Metric Alignment
 

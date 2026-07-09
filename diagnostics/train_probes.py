@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -26,11 +27,17 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from diagnostics.common import add_common_args, ensure_dir, read_json, run_dir, write_json
 
 
-CLASS_TASKS = ("agent_x", "agent_y", "goal_x", "goal_y", "optimal_action")
-REG_TASKS = ("bfs_distance_norm",)
+COORD_CLASS_TASKS = ("agent_x", "agent_y", "goal_x", "goal_y")
+COORD_REG_TASKS = ("agent_x_norm", "agent_y_norm", "goal_x_norm", "goal_y_norm")
+CLASS_TASKS = COORD_CLASS_TASKS + ("optimal_action",)
+REG_TASKS = COORD_REG_TASKS + ("bfs_distance_norm",)
 MULTILABEL_TASKS = ("valid_action",)
 ALL_TASKS = CLASS_TASKS + REG_TASKS + MULTILABEL_TASKS
 FIXED_DIM_LAYERS = {"spatial_pool", "encoded", "embedding"}
@@ -98,7 +105,7 @@ def output_dim(task: str, size: int | None, max_coord: int) -> int:
         return 4
     if task == "valid_action":
         return 4
-    if task == "bfs_distance_norm":
+    if task in REG_TASKS:
         return 1
     raise ValueError(f"unknown task: {task}")
 
@@ -110,7 +117,7 @@ def task_tensors(
 ) -> torch.Tensor:
     values = [labels[task][size] for size in sizes]
     y = torch.cat(values, dim=0)
-    if task == "bfs_distance_norm":
+    if task in REG_TASKS:
         return y.float().view(-1, 1)
     if task == "valid_action":
         return y.float()
@@ -237,16 +244,16 @@ def evaluate_model(
     if task in {"agent_x", "agent_y", "goal_x", "goal_y"}:
         return class_metrics(logits, y_eval)
     if task == "optimal_action":
-        return class_metrics(logits, y_eval, optimal_mask_eval=optimal_mask_eval)
+        return class_metrics(logits, y_eval, optimal_mask=optimal_mask_eval)
     if task == "valid_action":
         return multilabel_metrics(logits, y_eval.float())
-    if task == "bfs_distance_norm":
+    if task in REG_TASKS:
         return regression_metrics(logits, y_eval.float())
     raise ValueError(task)
 
 
 def select_score(task: str, metrics: dict[str, float]) -> float:
-    if task == "bfs_distance_norm":
+    if task in REG_TASKS:
         rmse = metrics.get("rmse", float("inf"))
         return -rmse if math.isfinite(rmse) else -float("inf")
     if task == "valid_action":
@@ -400,6 +407,13 @@ def main() -> None:
 
                 # Unified probes: only possible when feature dimension is stable across sizes.
                 if layer in FIXED_DIM_LAYERS:
+                    if task in COORD_CLASS_TASKS:
+                        # Raw coordinate classification is meaningful for
+                        # per-size probes, but not as a unified cross-size
+                        # diagnostic: OOD sizes contain coordinate classes that
+                        # never appear in train sizes. Use *_norm regression
+                        # tasks for unified coordinate generalization instead.
+                        continue
                     train_sizes = train_sizes_by_layer[layer]
                     eval_sizes = eval_sizes_by_layer[layer]
                     out_dim = output_dim(task, None, max_coord)

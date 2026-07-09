@@ -123,8 +123,9 @@ MLP probe     判断信息是否存在但需要非线性解码
 诊断任务包括：
 
 ```text
-agent_x / agent_y       是否知道自己在哪
-goal_x / goal_y         是否知道目标在哪
+agent_x / agent_y       per-size 坐标分类：是否知道自己在哪
+goal_x / goal_y         per-size 坐标分类：是否知道目标在哪
+agent_x_norm / ...      unified 跨尺寸坐标回归：是否能泛化到新尺寸坐标
 valid_action            是否知道局部墙结构
 bfs_distance_norm       是否编码了到 goal 的 geodesic 距离
 optimal_action          是否能支持 BFS 最优下一步动作

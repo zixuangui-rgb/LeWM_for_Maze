@@ -13,6 +13,7 @@ by all probes so later experiments can compare models under the same protocol:
 from __future__ import annotations
 
 import argparse
+import sys
 import time
 from collections import defaultdict
 from pathlib import Path
@@ -20,6 +21,10 @@ from typing import Any
 
 import numpy as np
 import torch
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from diagnostics.common import (
     ACTION_IDS,
@@ -137,6 +142,10 @@ def build_split_cache(
             labels["agent_y"].append(int(state // size))
             labels["goal_x"].append(int(goal % size))
             labels["goal_y"].append(int(goal // size))
+            labels.setdefault("agent_x_norm", []).append(float(state % size) / max(size - 1, 1))
+            labels.setdefault("agent_y_norm", []).append(float(state // size) / max(size - 1, 1))
+            labels.setdefault("goal_x_norm", []).append(float(goal % size) / max(size - 1, 1))
+            labels.setdefault("goal_y_norm", []).append(float(goal // size) / max(size - 1, 1))
             labels["valid_action"].append(valid_action_mask(env, int(state)))
             labels["optimal_action"].append(int(opt_cls))
             labels["optimal_action_mask"].append(opt_mask)
@@ -171,6 +180,10 @@ def build_split_cache(
             "agent_y": np.asarray(labels["agent_y"], dtype=np.int64),
             "goal_x": np.asarray(labels["goal_x"], dtype=np.int64),
             "goal_y": np.asarray(labels["goal_y"], dtype=np.int64),
+            "agent_x_norm": np.asarray(labels["agent_x_norm"], dtype=np.float32),
+            "agent_y_norm": np.asarray(labels["agent_y_norm"], dtype=np.float32),
+            "goal_x_norm": np.asarray(labels["goal_x_norm"], dtype=np.float32),
+            "goal_y_norm": np.asarray(labels["goal_y_norm"], dtype=np.float32),
             "valid_action": np.asarray(labels["valid_action"], dtype=np.float32),
             "optimal_action": np.asarray(labels["optimal_action"], dtype=np.int64),
             "optimal_action_mask": np.asarray(labels["optimal_action_mask"], dtype=np.float32),
