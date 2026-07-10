@@ -16,13 +16,20 @@ from spatial_jepa_planning.common import (
     ACTION_IDS,
     ACTION_TO_SLOT,
     build_map_targets,
+    estimate_planner_conv_macs,
+    estimate_representation_planning_conv_macs,
+    experiment_code_fingerprint,
+    git_commit,
+    make_rng_streams,
     next_state,
     read_jsonl,
     resolve_device,
+    runtime_metadata,
     save_checkpoint,
     sha256_file,
     validate_manifest_entry,
 )
+from spatial_jepa_planning.generate_confirmatory_manifest import generate_entries
 from spatial_jepa_planning.losses import PlannerLossWeights, planner_loss
 from spatial_jepa_planning.models import (
     OracleValueIteration,
@@ -35,7 +42,11 @@ from spatial_jepa_planning.models import (
     neighbor_stack,
     update_ema_target,
 )
-from spatial_jepa_planning.summarize import validate_metadata, validate_task_rows
+from spatial_jepa_planning.summarize import (
+    crossed_paired_bootstrap,
+    validate_metadata,
+    validate_task_rows,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -51,18 +62,77 @@ def test_auto_device_resolves_to_available_backend() -> None:
     assert device.type == ("cuda" if torch.cuda.is_available() else "cpu")
 
 
+def test_rng_streams_do_not_shift_data_when_schedule_consumption_changes() -> None:
+    first = make_rng_streams(42)
+    second = make_rng_streams(42)
+    first.iteration_schedule.integers(0, 1000, size=1000)
+    assert np.array_equal(
+        first.entries.integers(0, 10_000, size=32),
+        second.entries.integers(0, 10_000, size=32),
+    )
+    assert np.array_equal(
+        first.map_states.integers(0, 10_000, size=32),
+        second.map_states.integers(0, 10_000, size=32),
+    )
+
+
+def test_confirmatory_manifest_reproduces_exactly() -> None:
+    committed = read_jsonl(
+        ROOT / "data/splits/spatial_jepa_confirm_eval_manifest.jsonl"
+    )
+    assert committed == generate_entries()
+    assert len(committed) == 900
+    assert len({entry["layout_hash"] for entry in committed}) == 900
+
+
+def test_crossed_bootstrap_requires_shared_tasks_across_seeds() -> None:
+    baseline = [
+        [{"task_id": "a", "success": 0}, {"task_id": "b", "success": 1}],
+        [{"task_id": "a", "success": 0}, {"task_id": "b", "success": 0}],
+    ]
+    candidate = [
+        [{"task_id": "a", "success": 1}, {"task_id": "b", "success": 1}],
+        [{"task_id": "a", "success": 1}, {"task_id": "b", "success": 0}],
+    ]
+    result = crossed_paired_bootstrap(
+        candidate, baseline, metric="success", samples=1000, seed=7
+    )
+    assert result["delta"] == 0.5
+    with pytest.raises(ValueError, match="identical task IDs"):
+        crossed_paired_bootstrap(
+            [candidate[0], [{"task_id": "c", "success": 1}]],
+            baseline,
+            metric="success",
+            samples=10,
+        )
+
+
 def test_summary_rejects_sampled_or_duplicate_task_results() -> None:
+    code_fingerprint = experiment_code_fingerprint()
+    current_commit = git_commit()
+    assert current_commit is not None
     metadata = {
         "eval_manifest_sha256": "locked",
+        "evaluated_manifest_sha256": "locked",
+        "split_role": "confirmatory",
         "max_steps": 128,
         "seed": 42,
         "task_count": 2,
         "max_per_size": 0,
         "limit": 0,
-        "action_selection": "corrected",
+        "action_selection": "unmasked",
         "mode": "learned",
         "recompute_every_step": False,
-        "comparable_to_full900": True,
+        "comparable_to_primary": True,
+        "git_dirty": False,
+        "git_commit": current_commit,
+        "code_fingerprint": code_fingerprint,
+        "training_code_fingerprint": code_fingerprint,
+        "training_git_dirty": False,
+        "training_git_commit": current_commit,
+        "checkpoint_sha256": "checkpoint",
+        "analysis_spec_sha256": "analysis",
+        "training_analysis_spec_sha256": "analysis",
     }
     validate_metadata(
         {"metadata": metadata},
@@ -70,6 +140,10 @@ def test_summary_rejects_sampled_or_duplicate_task_results() -> None:
         max_steps=128,
         expected_task_count=2,
         evaluation_seed=42,
+        expected_mode="learned",
+        expected_action_selection="unmasked",
+        require_primary=True,
+        expected_analysis_spec_sha256="analysis",
     )
     validate_task_rows(
         {"task_rows": [{"task_id": "a"}, {"task_id": "b"}]},
@@ -82,6 +156,75 @@ def test_summary_rejects_sampled_or_duplicate_task_results() -> None:
             max_steps=128,
             expected_task_count=2,
             evaluation_seed=42,
+            expected_mode="learned",
+            expected_action_selection="unmasked",
+            require_primary=True,
+            expected_analysis_spec_sha256="analysis",
+        )
+    with pytest.raises(ValueError, match="trained from a dirty"):
+        validate_metadata(
+            {"metadata": {**metadata, "training_git_dirty": True}},
+            expected_eval_hash="locked",
+            max_steps=128,
+            expected_task_count=2,
+            evaluation_seed=42,
+            expected_mode="learned",
+            expected_action_selection="unmasked",
+            require_primary=True,
+            expected_analysis_spec_sha256="analysis",
+        )
+    with pytest.raises(ValueError, match="different Git commits"):
+        validate_metadata(
+            {"metadata": {**metadata, "training_git_commit": "other-commit"}},
+            expected_eval_hash="locked",
+            max_steps=128,
+            expected_task_count=2,
+            evaluation_seed=42,
+            expected_mode="learned",
+            expected_action_selection="unmasked",
+            require_primary=True,
+            expected_analysis_spec_sha256="analysis",
+        )
+    with pytest.raises(ValueError, match="action selection"):
+        validate_metadata(
+            {"metadata": {**metadata, "action_selection": "corrected"}},
+            expected_eval_hash="locked",
+            max_steps=128,
+            expected_task_count=2,
+            evaluation_seed=42,
+            expected_mode="learned",
+            expected_action_selection="unmasked",
+            require_primary=True,
+            expected_analysis_spec_sha256="analysis",
+        )
+    with pytest.raises(ValueError, match="analysis spec"):
+        validate_metadata(
+            {"metadata": {**metadata, "analysis_spec_sha256": "changed"}},
+            expected_eval_hash="locked",
+            max_steps=128,
+            expected_task_count=2,
+            evaluation_seed=42,
+            expected_mode="learned",
+            expected_action_selection="unmasked",
+            require_primary=True,
+            expected_analysis_spec_sha256="analysis",
+        )
+    with pytest.raises(ValueError, match="not trained under"):
+        validate_metadata(
+            {
+                "metadata": {
+                    **metadata,
+                    "training_analysis_spec_sha256": "changed",
+                }
+            },
+            expected_eval_hash="locked",
+            max_steps=128,
+            expected_task_count=2,
+            evaluation_seed=42,
+            expected_mode="learned",
+            expected_action_selection="unmasked",
+            require_primary=True,
+            expected_analysis_spec_sha256="analysis",
         )
     with pytest.raises(ValueError, match="unique task IDs"):
         validate_task_rows(
@@ -167,6 +310,56 @@ def test_planner_loss_backpropagates_for_both_architectures() -> None:
         assert any(parameter.grad is not None for parameter in planner.parameters())
 
 
+def test_iterative_compute_accounting_scales_with_iterations() -> None:
+    planner = build_planner(
+        PlannerConfig(
+            input_channels=5,
+            hidden_dim=8,
+            planner_type="iterative",
+            depth=4,
+        )
+    )
+    k4 = estimate_planner_conv_macs(
+        planner,
+        input_channels=5,
+        maze_size=9,
+        iterations=4,
+        device=torch.device("cpu"),
+    )
+    k8 = estimate_planner_conv_macs(
+        planner,
+        input_channels=5,
+        maze_size=9,
+        iterations=8,
+        device=torch.device("cpu"),
+    )
+    assert k4 > 0
+    assert k8 > k4
+
+
+def test_representation_compute_accounting_covers_planning_path() -> None:
+    representation = SpatialRepresentation(
+        SpatialRepresentationConfig(
+            spatial_dim=8,
+            planning_dim=8,
+            encoder_blocks=1,
+            predictor_blocks=1,
+        )
+    )
+    size9 = estimate_representation_planning_conv_macs(
+        representation,
+        maze_size=9,
+        device=torch.device("cpu"),
+    )
+    size11 = estimate_representation_planning_conv_macs(
+        representation,
+        maze_size=11,
+        device=torch.device("cpu"),
+    )
+    assert size9 > 0
+    assert size11 > size9
+
+
 def test_iteration_budget_masks_unreachable_far_cells() -> None:
     entry = read_jsonl(ROOT / "data/splits/unisize_train_manifest.jsonl")[3]
     env = validate_manifest_entry(entry)
@@ -246,8 +439,21 @@ def test_default_config_passes_alignment_audit() -> None:
     with open(ROOT / "spatial_jepa_planning/configs/default.json") as stream:
         config = json.load(stream)
     result = audit_config(config)
-    assert len(result["seeds"]) >= 3
+    assert len(result["seeds"]) == 10
     assert "r4_raw_iterative_progressive" in result["planners"]
+    assert result["confirmatory_hypotheses"] == [
+        "r4_raw_iterative_progressive",
+        "j1_spatial_iterative_frozen",
+        "j2_spatial_iterative_lastblock",
+    ]
+    changed_budget = json.loads(json.dumps(config))
+    changed_budget["planner_defaults"]["steps"] = 100
+    with pytest.raises(ValueError, match="planner_defaults.steps"):
+        audit_config(changed_budget)
+    changed_hypothesis = json.loads(json.dumps(config))
+    changed_hypothesis["planners"][5]["hypothesis"]["minimum_effect_sr"] = 0.0
+    with pytest.raises(ValueError, match="hypothesis"):
+        audit_config(changed_hypothesis)
 
 
 def test_runner_dry_run_builds_commands() -> None:
@@ -274,14 +480,14 @@ def test_runner_dry_run_builds_commands() -> None:
         for command in commands
         if "--output" in command
     ]
-    assert len(commands) == 70
-    assert len(outputs) == len(set(outputs)) == 70
+    assert len(commands) == 534
+    assert len(outputs) == len(set(outputs)) == 534
     labelled_evaluations = [
         command
         for command in commands
         if command[1].endswith("evaluate.py") and "--training-seed" in command
     ]
-    assert len(labelled_evaluations) == 33
+    assert len(labelled_evaluations) == 420
     assert all(
         command[command.index("--seed") + 1] == "42" for command in labelled_evaluations
     )
@@ -290,11 +496,29 @@ def test_runner_dry_run_builds_commands() -> None:
         for command in commands
         if command[1].endswith("train.py") and "--representation-ckpt" in command
     ]
-    assert len(spatial_train_commands) == 12
+    assert len(spatial_train_commands) == 40
     for command in spatial_train_commands:
         seed = command[command.index("--seed") + 1]
         checkpoint = command[command.index("--representation-ckpt") + 1]
         assert checkpoint.endswith(f"spatial_info_sigreg_seed{seed}.pt")
+    primary_evaluations = [
+        command
+        for command in labelled_evaluations
+        if command[command.index("--split-role") + 1] == "confirmatory"
+        and command[command.index("--action-selection") + 1] == "unmasked"
+        and "--planner-ckpt" in command
+    ]
+    assert len(primary_evaluations) == 100
+    assert all(
+        "--analysis-spec-sha256" in command
+        for command in commands
+        if command[1].endswith("evaluate.py")
+    )
+    assert all(
+        "--analysis-spec-sha256" in command
+        for command in commands
+        if command[1].endswith("train.py")
+    )
 
 
 def test_runner_rejects_unknown_variant_and_duplicate_seed() -> None:
@@ -335,6 +559,8 @@ def test_oracle_bfs_cli_preserves_fixed_task_count(tmp_path: Path) -> None:
             "0",
             "--device",
             "cpu",
+            "--allow-dirty-worktree",
+            "--allow-protocol-mismatch",
         ],
         cwd=ROOT,
         check=True,
@@ -354,7 +580,8 @@ def test_learned_evaluator_cli_loads_new_checkpoint(tmp_path: Path) -> None:
     )
     planner = build_planner(config)
     checkpoint = tmp_path / "planner.pt"
-    eval_manifest = ROOT / "data/splits/unisize_eval_manifest.jsonl"
+    development_manifest = ROOT / "data/splits/unisize_eval_manifest.jsonl"
+    eval_manifest = ROOT / "data/splits/spatial_jepa_confirm_eval_manifest.jsonl"
     save_checkpoint(
         checkpoint,
         {
@@ -364,9 +591,26 @@ def test_learned_evaluator_cli_loads_new_checkpoint(tmp_path: Path) -> None:
             "input_mode": "raw",
             "planner_config": config.to_dict(),
             "planner_state_dict": planner.state_dict(),
+            "experiment_spec_sha256": "test-training-spec",
+            "analysis_spec_sha256": "test-analysis-spec",
+            "planner_parameter_count": sum(
+                parameter.numel() for parameter in planner.parameters()
+            ),
+            "representation_planning_parameter_count": 0,
+            "total_inference_parameter_count": sum(
+                parameter.numel() for parameter in planner.parameters()
+            ),
+            "planner_inference_conv_macs": {"25": {"2": 1}},
+            "representation_inference_conv_macs": {"25": 0},
+            "training_args": {"device": "cpu"},
             "protocol": {
                 "seed": 42,
                 "eval_manifest_sha256": sha256_file(eval_manifest),
+                "development_manifest_sha256": sha256_file(development_manifest),
+                "code_fingerprint": experiment_code_fingerprint(),
+                "runtime": runtime_metadata(),
+                "git_commit": "test-commit",
+                "git_dirty": False,
             },
         },
     )
@@ -393,11 +637,21 @@ def test_learned_evaluator_cli_loads_new_checkpoint(tmp_path: Path) -> None:
             "42",
             "--device",
             "cpu",
+            "--analysis-spec-sha256",
+            "test-analysis-spec",
+            "--allow-dirty-worktree",
         ],
         cwd=ROOT,
         check=True,
     )
     data = json.loads(output.read_text())
     assert data["metadata"]["training_seed"] == 42
+    assert data["metadata"]["action_selection"] == "unmasked"
+    assert data["metadata"]["checkpoint_sha256"] == sha256_file(checkpoint)
+    assert data["metadata"]["analysis_spec_sha256"] == "test-analysis-spec"
+    assert data["metadata"]["training_analysis_spec_sha256"] == "test-analysis-spec"
+    assert data["metadata"]["training_git_dirty"] is False
+    assert data["metadata"]["total_inference_parameter_count"] > 0
+    assert data["metadata"]["comparable_to_primary"] is False
     assert "2" in data["results"]
     assert data["results"]["2"]["field"]["overall"]["n_states"] > 0

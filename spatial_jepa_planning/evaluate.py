@@ -23,6 +23,8 @@ from spatial_jepa_planning.common import (
     ACTION_IDS,
     ACTION_TO_SLOT,
     build_map_targets,
+    experiment_code_fingerprint,
+    git_commit,
     load_planner_checkpoint,
     load_representation_checkpoint,
     next_state,
@@ -31,6 +33,8 @@ from spatial_jepa_planning.common import (
     planner_features,
     protocol_metadata,
     read_jsonl,
+    require_clean_worktree,
+    require_new_output,
     resolve_device,
     set_agent_state,
     set_seed,
@@ -60,16 +64,30 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--train-manifest", default="data/splits/unisize_train_manifest.jsonl"
     )
-    parser.add_argument("--manifest", default="data/splits/unisize_eval_manifest.jsonl")
+    parser.add_argument(
+        "--development-manifest", default="data/splits/unisize_eval_manifest.jsonl"
+    )
+    parser.add_argument(
+        "--confirmatory-manifest",
+        default="data/splits/spatial_jepa_confirm_eval_manifest.jsonl",
+    )
+    parser.add_argument(
+        "--manifest", default="data/splits/spatial_jepa_confirm_eval_manifest.jsonl"
+    )
+    parser.add_argument(
+        "--split-role",
+        choices=("development", "confirmatory"),
+        default="confirmatory",
+    )
     parser.add_argument("--output", required=True)
-    parser.add_argument("--iterations", default="8,16,32,64,128,256")
+    parser.add_argument("--iterations", default="4,8,16,32,64,128,256")
     parser.add_argument(
         "--decision-source", choices=("policy", "value"), default="policy"
     )
     parser.add_argument(
         "--action-selection",
         choices=("corrected", "model_valid", "unmasked"),
-        default="corrected",
+        default="unmasked",
     )
     parser.add_argument("--max-steps", type=int, default=128)
     parser.add_argument("--max-per-size", type=int, default=0)
@@ -88,6 +106,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="auto")
     parser.add_argument("--progress-every", type=int, default=100)
     parser.add_argument("--allow-protocol-mismatch", action="store_true")
+    parser.add_argument("--analysis-spec-sha256", default="")
+    parser.add_argument("--allow-dirty-worktree", action="store_true")
+    parser.add_argument("--overwrite", action="store_true")
     return parser.parse_args()
 
 
@@ -112,9 +133,16 @@ def select_entries(
 def verify_checkpoint_protocol(
     checkpoint: dict[str, Any],
     manifest: str | Path,
+    split_role: str,
     allow_mismatch: bool,
 ) -> None:
-    expected = checkpoint.get("protocol", {}).get("eval_manifest_sha256")
+    protocol = checkpoint.get("protocol", {})
+    expected_key = (
+        "development_manifest_sha256"
+        if split_role == "development"
+        else "eval_manifest_sha256"
+    )
+    expected = protocol.get(expected_key)
     actual = sha256_file(manifest)
     if expected and expected != actual and not allow_mismatch:
         raise ValueError(
@@ -122,6 +150,13 @@ def verify_checkpoint_protocol(
             f"checkpoint={expected}, current={actual}. "
             "Use --allow-protocol-mismatch only for a labelled "
             "non-comparable diagnostic."
+        )
+    expected_code = protocol.get("code_fingerprint")
+    actual_code = experiment_code_fingerprint()
+    if expected_code != actual_code and not allow_mismatch:
+        raise ValueError(
+            "checkpoint/evaluator code fingerprint mismatch: "
+            f"checkpoint={expected_code}, current={actual_code}"
         )
 
 
@@ -179,6 +214,16 @@ def choose_learned_action(
     return int(best_action)
 
 
+def require_finite_output(output: PlannerOutput) -> None:
+    for name, tensor in (
+        ("value", output.value),
+        ("policy_logits", output.policy_logits),
+        ("valid_logits", output.valid_logits),
+    ):
+        if not bool(torch.isfinite(tensor).all()):
+            raise FloatingPointError(f"non-finite planner output: {name}")
+
+
 def decode_map(
     representation: SpatialRepresentation,
     observation: np.ndarray,
@@ -188,6 +233,8 @@ def decode_map(
     with torch.no_grad():
         latent = representation.planning_latent(obs)
         decoded = representation.map_decoder(latent)
+    if any(not bool(torch.isfinite(value).all()) for value in decoded.values()):
+        raise FloatingPointError("non-finite decoded map output")
     wall_probability = torch.sigmoid(decoded["wall_logits"])[0]
     wall = (wall_probability >= 0.5).cpu().numpy().astype(bool)
     agent = int(decoded["agent_logits"][0].flatten().argmax())
@@ -199,11 +246,16 @@ def decode_map(
     union = int(np.logical_or(wall, true_wall).sum())
     true_agent = int(observation[..., 2].reshape(-1).argmax())
     true_goal = int(observation[..., 3].reshape(-1).argmax())
+    tokens = latent[0].permute(1, 2, 0).reshape(-1, latent.shape[1]).float()
+    channel_std = tokens.std(dim=0, unbiased=False).mean()
+    token_norm_std = tokens.norm(dim=1).std(unbiased=False)
     metrics = {
         "wall_intersection": float(intersection),
         "wall_union": float(union),
         "agent_correct": float(agent == true_agent),
         "goal_correct": float(goal == true_goal),
+        "planning_channel_std": float(channel_std.detach().cpu()),
+        "planning_token_norm_std": float(token_norm_std.detach().cpu()),
     }
     return wall, agent, goal, metrics
 
@@ -414,6 +466,7 @@ def evaluate_learned(
                     representation,
                 )
                 field_output = planner(features, iterations=iterations)[-1]
+                require_finite_output(field_output)
             targets = {
                 name: value.unsqueeze(0)
                 for name, value in build_map_targets(env_for_field, device).items()
@@ -475,6 +528,7 @@ def evaluate_learned(
                             representation,
                         )
                         output = planner(current_features, iterations=_iterations)[-1]
+                        require_finite_output(output)
                 action = choose_learned_action(
                     output,
                     env,
@@ -494,7 +548,7 @@ def evaluate_learned(
                     f"  K={iterations:<4d} {index + 1:>4d}/{len(entries)} SR={sr:.4f}"
                 )
         results[str(iterations)] = {
-            "navigation": summarize_rows(rows, args.seen_max_size),
+            "navigation": summarize_rows(rows, args.seen_max_size, args.max_steps),
             "field": {
                 "overall": field_all.summary(),
                 "seen": field_seen.summary(),
@@ -548,13 +602,17 @@ def evaluate_decoded_bfs(
             print(f"  decoded {index + 1:>4d}/{len(entries)}")
     total_steps = max(sum(row["path_length"] for row in rows), 1)
     return {
-        "navigation": summarize_rows(rows, args.seen_max_size),
+        "navigation": summarize_rows(rows, args.seen_max_size, args.max_steps),
         "decoder": {
             "wall_iou": map_totals["wall_intersection"]
             / max(map_totals["wall_union"], 1.0),
             "agent_accuracy_per_step": map_totals["agent_correct"] / total_steps,
             "goal_accuracy_per_step": map_totals["goal_correct"] / total_steps,
             "reachable_rate_per_step": map_totals["decoded_reachable"] / total_steps,
+            "planning_channel_std_per_step": map_totals["planning_channel_std"]
+            / total_steps,
+            "planning_token_norm_std_per_step": map_totals["planning_token_norm_std"]
+            / total_steps,
         },
         "task_rows": rows,
     }
@@ -628,16 +686,31 @@ def evaluate_oracle(
             label = "bfs" if iterations is None else f"vi K={iterations}"
             print(f"  {label} {index + 1:>4d}/{len(entries)}")
     return {
-        "navigation": summarize_rows(rows, args.seen_max_size),
+        "navigation": summarize_rows(rows, args.seen_max_size, args.max_steps),
         "task_rows": rows,
     }
 
 
 def main() -> None:
     args = parse_args()
+    require_clean_worktree(args.allow_dirty_worktree)
+    require_new_output(args.output, args.overwrite)
+    if not args.analysis_spec_sha256 and not args.allow_protocol_mismatch:
+        raise ValueError(
+            "formal evaluation requires --analysis-spec-sha256 from run_plan.py"
+        )
     if args.max_steps <= 0:
         raise ValueError("max-steps must be positive")
-    set_seed(args.seed)
+    role_manifest = (
+        args.development_manifest
+        if args.split_role == "development"
+        else args.confirmatory_manifest
+    )
+    if sha256_file(args.manifest) != sha256_file(role_manifest):
+        raise ValueError(
+            f"--manifest does not match declared split role {args.split_role}"
+        )
+    set_seed(args.seed, deterministic=True)
     device = resolve_device(args.device)
     entries = select_entries(
         read_jsonl(args.manifest),
@@ -659,7 +732,10 @@ def main() -> None:
             args.planner_ckpt, device
         )
         verify_checkpoint_protocol(
-            checkpoint, args.manifest, args.allow_protocol_mismatch
+            checkpoint,
+            args.manifest,
+            args.split_role,
+            args.allow_protocol_mismatch,
         )
     elif args.mode == "decoded_bfs":
         if not args.representation_ckpt:
@@ -684,7 +760,10 @@ def main() -> None:
         for parameter in representation.parameters():
             parameter.requires_grad = False
         verify_checkpoint_protocol(
-            checkpoint, args.manifest, args.allow_protocol_mismatch
+            checkpoint,
+            args.manifest,
+            args.split_role,
+            args.allow_protocol_mismatch,
         )
 
     if checkpoint is not None and args.training_seed is not None:
@@ -694,14 +773,50 @@ def main() -> None:
                 f"checkpoint seed {checkpoint_seed} != labelled training seed "
                 f"{args.training_seed}"
             )
+    if (
+        checkpoint is not None
+        and args.training_seed is None
+        and not args.allow_protocol_mismatch
+    ):
+        raise ValueError("formal checkpoint evaluation requires --training-seed")
+    if (
+        checkpoint is not None
+        and checkpoint.get("analysis_spec_sha256") != args.analysis_spec_sha256
+        and not args.allow_protocol_mismatch
+    ):
+        raise ValueError(
+            "checkpoint analysis spec differs from the evaluation preregistration"
+        )
+    if checkpoint is not None and not (
+        args.allow_dirty_worktree or args.allow_protocol_mismatch
+    ):
+        checkpoint_protocol = checkpoint.get("protocol", {})
+        if checkpoint_protocol.get("git_dirty") is not False:
+            raise ValueError(
+                "formal evaluation rejects a checkpoint trained from a dirty worktree"
+            )
+        if not checkpoint_protocol.get("git_commit"):
+            raise ValueError("checkpoint is missing its training Git commit")
+        if checkpoint_protocol.get("git_commit") != git_commit():
+            raise ValueError(
+                "checkpoint training and evaluation must use the same Git commit"
+            )
 
     print("=" * 88)
     print("SPATIAL-JEPA ITERATIVE PLANNING EVALUATION")
     print("=" * 88)
     displayed_selection = (
-        args.decoded_action_selection
-        if args.mode == "decoded_bfs"
-        else args.action_selection
+        "oracle_bfs_shortest_path"
+        if args.mode == "oracle_bfs"
+        else (
+            "oracle_vi_with_oracle_validity"
+            if args.mode == "oracle_vi"
+            else (
+                args.decoded_action_selection
+                if args.mode == "decoded_bfs"
+                else args.action_selection
+            )
+        )
     )
     print(
         f"mode={args.mode} tasks={len(entries)} max_steps={args.max_steps} "
@@ -729,14 +844,38 @@ def main() -> None:
             for count in iterations
         }
 
+    is_oracle = args.mode in {"oracle_bfs", "oracle_vi"}
+    effective_action_protocol = (
+        "oracle_bfs_shortest_path"
+        if args.mode == "oracle_bfs"
+        else (
+            "oracle_vi_with_oracle_validity"
+            if args.mode == "oracle_vi"
+            else (
+                f"decoded_map_{args.decoded_action_selection}"
+                if args.mode == "decoded_bfs"
+                else args.action_selection
+            )
+        )
+    )
+    checkpoint_sha256 = None
+    if args.planner_ckpt:
+        checkpoint_sha256 = sha256_file(args.planner_ckpt)
+    elif args.representation_ckpt:
+        checkpoint_sha256 = sha256_file(args.representation_ckpt)
     payload = {
         "metadata": {
             **protocol_metadata(
                 train_manifest=args.train_manifest,
-                eval_manifest=args.manifest,
+                eval_manifest=args.confirmatory_manifest,
+                development_manifest=args.development_manifest,
                 seed=args.seed,
                 max_steps=args.max_steps,
             ),
+            "evaluated_manifest": args.manifest,
+            "evaluated_manifest_sha256": sha256_file(args.manifest),
+            "split_role": args.split_role,
+            "analysis_spec_sha256": args.analysis_spec_sha256,
             "mode": args.mode,
             "planner_ckpt": args.planner_ckpt,
             "representation_ckpt": args.representation_ckpt,
@@ -744,6 +883,59 @@ def main() -> None:
             "action_selection": args.action_selection,
             "task_count": len(entries),
             "training_seed": args.training_seed,
+            "checkpoint_sha256": checkpoint_sha256,
+            "training_experiment_spec_sha256": checkpoint.get("experiment_spec_sha256")
+            if checkpoint is not None
+            else None,
+            "training_analysis_spec_sha256": checkpoint.get("analysis_spec_sha256")
+            if checkpoint is not None
+            else None,
+            "training_code_fingerprint": checkpoint.get("protocol", {}).get(
+                "code_fingerprint"
+            )
+            if checkpoint is not None
+            else None,
+            "training_git_commit": checkpoint.get("protocol", {}).get("git_commit")
+            if checkpoint is not None
+            else None,
+            "training_git_dirty": checkpoint.get("protocol", {}).get("git_dirty")
+            if checkpoint is not None
+            else None,
+            "training_runtime": checkpoint.get("protocol", {}).get("runtime")
+            if checkpoint is not None
+            else None,
+            "training_device": checkpoint.get("training_args", {}).get("device")
+            if checkpoint is not None
+            else None,
+            "training_accounting": checkpoint.get("training_accounting")
+            if checkpoint is not None
+            else None,
+            "source_representation_sha256": checkpoint.get(
+                "source_representation_sha256"
+            )
+            if checkpoint is not None
+            else None,
+            "planner_parameter_count": checkpoint.get("planner_parameter_count")
+            if checkpoint is not None
+            else None,
+            "representation_planning_parameter_count": checkpoint.get(
+                "representation_planning_parameter_count"
+            )
+            if checkpoint is not None
+            else None,
+            "total_inference_parameter_count": checkpoint.get(
+                "total_inference_parameter_count"
+            )
+            if checkpoint is not None
+            else None,
+            "planner_inference_conv_macs": checkpoint.get("planner_inference_conv_macs")
+            if checkpoint is not None
+            else None,
+            "representation_inference_conv_macs": checkpoint.get(
+                "representation_inference_conv_macs"
+            )
+            if checkpoint is not None
+            else None,
             "max_per_size": args.max_per_size,
             "limit": args.limit,
             "field_states_per_maze": args.field_states_per_maze,
@@ -751,10 +943,25 @@ def main() -> None:
             "recompute_every_step": args.recompute_every_step,
             "decoded_action_selection": args.decoded_action_selection,
             "device": str(device),
-            "comparable_to_full900": bool(
+            "effective_action_protocol": effective_action_protocol,
+            "comparable_to_primary": bool(
                 len(entries) == 900
+                and args.split_role == "confirmatory"
                 and args.max_steps == 128
-                and args.action_selection == "corrected"
+                and not args.allow_protocol_mismatch
+                and not args.allow_dirty_worktree
+                and (
+                    is_oracle
+                    or (
+                        args.mode == "learned"
+                        and args.action_selection == "unmasked"
+                        and not args.recompute_every_step
+                    )
+                    or (
+                        args.mode == "decoded_bfs"
+                        and args.decoded_action_selection == "predicted"
+                    )
+                )
             ),
         },
         "results": results,

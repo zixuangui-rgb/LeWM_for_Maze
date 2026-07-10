@@ -13,7 +13,8 @@
 | Prefix-only h10 drift | 9.706 -> 7.120 | rollout 可改善，但 planner 仍没有突破 |
 | FCVP | SR 0.629，local top-1 0.690 | spatial field + global value regression 仍不够 |
 | Old hardcoded VI | SR 0.957 | 迭代传播接近 oracle，但旧实现仍有非理论失败 |
-| New exact BFS / VI K256 | SR 0.981111 | 等于 `max_steps=128` 下的精确上限 |
+| Legacy exact BFS / VI K256 | SR 0.981111 | 旧 development split 的 step-cap 上限 |
+| Confirmatory exact BFS / VI K256 | SR 0.978889 | 新确认集的 `881/900` step-cap 上限 |
 
 最稳健的阶段性结论不是“所有 feedforward 模型有 0.63 理论上限”，而是：
 
@@ -29,9 +30,13 @@ FCVP 的问题主要是 global scalar regression。全图 tie-aware action CE、
 
 ### H2：算法假设
 
-在相同 raw-grid input 和相同 planning losses 下，共享权重的局部 recurrent update 比 capacity-matched feedforward blocks 更接近 value iteration。
+在相同 raw-grid input 和相同 planning losses 下，progressive iterative system
+是否比 parameter-matched feedforward blocks 更有效。
 
-对照：R2、full-receptive-field dilated R2D vs R3/R4。R2D 使用 dilation `1/2/4/8`，在不增加参数量的情况下覆盖完整训练 maze，从而排除“recurrent 只是感受野更大”的替代解释。
+对照：R2、full-receptive-field dilated R2D vs R3/R4。R2D 使用 dilation
+`1/2/4/8`，在不增加参数量的情况下覆盖完整训练 maze。R4 K128 使用更多
+inference compute，因此该比较估计完整 iterative package，不把增益单独归因于
+recurrence；K=4 和实测 GMACs 用于说明 compute scaling。
 
 ### H3：test-time compute 假设
 
@@ -51,11 +56,21 @@ Dynamics prediction 与 planning supervision 如果全部压在同一 projector 
 
 对照：J1 frozen、J2 last-block、J3 joint；J3 记录 shared encoder 的 gradient cosine。
 
+以上 H1-H5 是机制问题。真正进入 family-wise confirmatory inference 的只有三条：
+
+- R4 K128 vs R2D：superiority，simultaneous CI lower bound `>= +0.03 SR`；
+- J1 frozen vs R4 raw：noninferiority，lower bound `> -0.03 SR`；
+- J2 staged vs J1 frozen：superiority，lower bound `>= +0.03 SR`。
+
+它们在新 confirmatory split、10 seeds 和 unmasked actions 上检验。R0-R3、J0、
+J3 以及 K curve 都是 exploratory/diagnostic。统计合同见
+`ALIGNMENT_PROTOCOL.md`。
+
 ## 3. 因果矩阵
 
 | Representation | Exact algorithm | Learned feedforward | Learned recurrent |
 |---|---|---|---|
-| Raw grid | exact BFS / oracle VI | R0-R2 | R3-R4 |
+| Raw grid | exact BFS / oracle VI | R0-R2D | R3-R4 |
 | Spatial-JEPA | decoded-map BFS | J0 | J1-J3 |
 
 解释规则：
@@ -122,13 +137,15 @@ readout 输出：
 
 ### 迭代监督
 
-对于 iterative model，K 次局部传播只对 `BFS distance <= K` 的位置施加 value/action/Bellman/gap supervision；valid-action 是局部任务，始终监督全图。这防止模型在 K=8 时被迫“瞬间”预测距离 100 的完整解。
+对于 iterative model，K 次局部传播只对 `BFS distance <= K` 的位置施加
+value/action/Bellman/gap supervision；valid-action 始终监督全图。这防止模型
+在 K=4 时被迫“瞬间”预测距离 100 的完整解。
 
 R4 使用 progressive/random K：
 
 ```text
-K_train in {8, 16, 32, 64, 128}
-K_test  in {8, 16, 32, 64, 128, 256}
+K_train in {4, 8, 16, 32, 64, 128}
+K_test  in {4, 8, 16, 32, 64, 128, 256}
 ```
 
 ## 6. Losses
@@ -180,20 +197,28 @@ max_logit(optimal) >= max_logit(valid suboptimal) + margin
 | J2 | Spatial-JEPA | recurrent | last block 0.1x LR + map loss | 128 | staged adaptation |
 | J3 | Spatial-JEPA | recurrent | joint JEPA/planning | 128 | interference test |
 
-在默认 `hidden_dim=64` 下，raw R2/R2D feedforward planner 均为 299,529 个参数，R4 recurrent planner 为 303,113 个参数，参数量差约 1.2%。实际 trainable parameter count 仍会写入 checkpoint；正式报告还应给出迭代次数和训练 FLOPs，不能把额外计算量隐去。
+在默认 `hidden_dim=64` 下，raw R2/R2D feedforward planner 均为 299,529 个
+参数，R4 recurrent planner 为 303,113 个参数，参数量差约 1.2%。checkpoint
+对 size 21/25 和每个 K 用 Conv2d hook 记录 inference MACs；Spatial-JEPA 还单独
+记录 encoder + planning projector 的静态 field 成本。报告必须同时展示 planner、
+representation path、总参数量、K 和总 GMACs，不能把额外计算量隐去。本矩阵不支持训练效率优越的结论，
+因为 Spatial-JEPA 还有共享的 representation pretraining 成本。
 
 ## 8. Training stages
 
 ### Stage A：representation
 
-先训练 Spatial-JEPA。不得看 eval900 调 loss。representation gate：
+先在 development split 训练和检查 Spatial-JEPA。不得查看 confirmatory learned
+结果来调整 loss。representation gate：
 
 - decoded wall IoU、agent/goal accuracy 明显高于随机；
 - decoded-map BFS 能稳定运行；
 - token/channel variance 不出现数值 collapse；
 - prediction loss 与 map losses 均稳定。
 
-理想 gate 是 decoded-map BFS `SR@128 >= 0.90`。若远低于该值，优先修表征，不进入“JEPA planner 不会推理”的结论。
+理想 development gate 是 decoded-map BFS `SR@128 >= 0.90`。若远低于该值，
+优先修表征，不进入“JEPA planner 不会推理”的结论。任何修改后必须从 clean
+commit 重训 formal checkpoints。
 
 ### Stage B：raw planner
 
@@ -201,8 +226,7 @@ max_logit(optimal) >= max_logit(valid suboptimal) + margin
 
 最低算法 gate：
 
-- R4 - R2D 的 paired delta SR >= 0.03；
-- 95% CI 不包含 0；
+- R4 - R2D 的 Bonferroni simultaneous CI lower bound >= 0.03；
 - local top-1 同向提升；
 - K 增加时 OOD/long-path 不退化。
 
@@ -217,9 +241,9 @@ max_logit(optimal) >= max_logit(valid suboptimal) + margin
 
 ## 9. Metrics
 
-Primary：
+Primary（confirmatory、unmasked、10 seeds）：
 
-- full900 `SR@128`、SPL；
+- full900 `SR@128`、eligible SR、SPL；
 - seen/OOD SR；
 - diagnostic-aligned Local top-1/margin；
 - per-size；
@@ -235,6 +259,10 @@ Secondary：
 - decoded reachability rate。
 
 必须按 shortest-path length 分桶补充分析，因为 size 与实际推理步数不是同一变量。
+
+同一 checkpoint 的 model-valid/corrected SR 必须单独报告为 assistance
+diagnostics。统计采用 seed×task crossed paired bootstrap；三条预注册假设使用
+Bonferroni simultaneous CI。完整判定规则见 `ALIGNMENT_PROTOCOL.md`。
 
 ## 10. 后续而非本轮主实验
 

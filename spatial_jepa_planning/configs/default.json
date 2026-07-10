@@ -1,23 +1,28 @@
 {
   "device": "auto",
-  "seeds": [42, 43, 44],
+  "seeds": [42, 43, 44, 45, 46, 47, 48, 49, 50, 51],
   "paths": {
     "train_manifest": "data/splits/unisize_train_manifest.jsonl",
-    "eval_manifest": "data/splits/unisize_eval_manifest.jsonl",
+    "development_manifest": "data/splits/unisize_eval_manifest.jsonl",
+    "eval_manifest": "data/splits/spatial_jepa_confirm_eval_manifest.jsonl",
     "protocol_lock": "spatial_jepa_planning/configs/protocol_lock.json",
     "representation_ckpt_template": "checkpoints/spatial_jepa_planning/{name}_seed{seed}.pt",
     "planner_ckpt_template": "checkpoints/spatial_jepa_planning/{name}_seed{seed}.pt",
-    "representation_eval_template": "spatial_jepa_planning_runs/{name}/seed{seed}/decoded_bfs.json",
-    "planner_eval_template": "spatial_jepa_planning_runs/{name}/seed{seed}/learned.json",
-    "oracle_bfs_output": "spatial_jepa_planning_runs/anchors/oracle_bfs.json",
-    "oracle_vi_output": "spatial_jepa_planning_runs/anchors/oracle_vi.json",
+    "representation_development_eval_template": "spatial_jepa_planning_runs/{name}/seed{seed}/development_decoded_bfs.json",
+    "representation_eval_template": "spatial_jepa_planning_runs/{name}/seed{seed}/confirmatory_decoded_bfs.json",
+    "planner_development_eval_template": "spatial_jepa_planning_runs/{name}/seed{seed}/development_unmasked.json",
+    "planner_eval_template": "spatial_jepa_planning_runs/{name}/seed{seed}/confirmatory_unmasked.json",
+    "planner_diagnostic_eval_template": "spatial_jepa_planning_runs/{name}/seed{seed}/confirmatory_{action_selection}.json",
+    "oracle_bfs_output": "spatial_jepa_planning_runs/anchors/confirmatory_oracle_bfs.json",
+    "oracle_vi_output": "spatial_jepa_planning_runs/anchors/confirmatory_oracle_vi.json",
     "audit_output": "spatial_jepa_planning_runs/protocol_audit.json",
     "summary_output": "spatial_jepa_planning_runs/summary.md"
   },
   "protocol": {
     "max_steps": 128,
     "seen_max_size": 21,
-    "action_selection": "corrected",
+    "action_selection": "unmasked",
+    "diagnostic_action_selections": ["model_valid", "corrected"],
     "eval_limit": 0,
     "eval_max_per_size": 0
   },
@@ -83,7 +88,7 @@
     "planner_hidden_dim": 64,
     "planner_depth": 4,
     "recall": true,
-    "train_iterations": "8,16,32,64,128",
+    "train_iterations": "4,8,16,32,64,128",
     "iteration_schedule": "random",
     "deep_supervision_every": 0,
     "distance_scale": 128.0,
@@ -178,6 +183,11 @@
       "decision_source": "policy",
       "primary_iterations": 128,
       "comparison_baseline": "r2d_raw_dilated_bellman_gap",
+      "hypothesis": {
+        "role": "confirmatory",
+        "test": "superiority",
+        "minimum_effect_sr": 0.03
+      },
       "train": {
         "planner_type": "iterative",
         "iteration_schedule": "progressive",
@@ -207,6 +217,11 @@
       "decision_source": "policy",
       "primary_iterations": 128,
       "comparison_baseline": "r4_raw_iterative_progressive",
+      "hypothesis": {
+        "role": "confirmatory",
+        "test": "noninferiority",
+        "margin_sr": 0.03
+      },
       "train": {
         "planner_type": "iterative",
         "encoder_mode": "frozen",
@@ -223,6 +238,11 @@
       "decision_source": "policy",
       "primary_iterations": 128,
       "comparison_baseline": "j1_spatial_iterative_frozen",
+      "hypothesis": {
+        "role": "confirmatory",
+        "test": "superiority",
+        "minimum_effect_sr": 0.03
+      },
       "train": {
         "planner_type": "iterative",
         "encoder_mode": "last_block",
@@ -251,12 +271,17 @@
   ],
   "evaluation": {
     "seed": 42,
-    "iterations": "8,16,32,64,128,256",
+    "iterations": "4,8,16,32,64,128,256",
     "oracle_vi_iterations": "32,64,128,256",
     "progress_every": 100,
     "field_states_per_maze": 24,
     "field_pairs_per_maze": 128,
     "decoded_action_selection": "predicted",
-    "bootstrap_samples": 10000
+    "bootstrap_samples": 20000
+  },
+  "inference": {
+    "familywise_alpha": 0.05,
+    "multiplicity_control": "bonferroni_simultaneous_ci",
+    "primary_metric": "success"
   }
 }

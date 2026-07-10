@@ -1,180 +1,201 @@
-# Server Runbook
+# Server Runbook v2
 
-## 0. 开始前
+## 0. Formal-run 前提
 
 ```bash
 cd /path/to/LeWM_for_Maze
-git rev-parse HEAD
+git pull --ff-only
 git status --short
 python --version
 python - <<'PY'
-import torch, numpy, gymnasium, pydantic
-print(torch.__version__, torch.cuda.is_available())
+import torch, numpy
+print(torch.__version__, numpy.__version__)
+print(torch.cuda.is_available(), torch.version.cuda)
+if torch.cuda.is_available():
+    print(torch.cuda.get_device_name(0))
 PY
 ```
 
-不要修改 manifests，不要把服务器绝对路径写进 config。checkpoint 和 result 目录已在 `.gitignore` 中。
+`git status --short` 必须为空。不要修改 manifests，也不要在 formal run 使用
+`--allow-dirty-worktree`、`--allow-protocol-mismatch`、`--allow-unlocked-spec` 或
+`--overwrite`。这些参数只允许临时诊断；严格汇总会拒绝相应结果。
+任何带 dirty/protocol 豁免的 evaluation 都会被强制标为
+`comparable_to_primary=false`。
 
-## 1. Fail-fast 检查
+如果服务器已有旧版 `checkpoints/spatial_jepa_planning/` 或
+`spatial_jepa_planning_runs/`，先整体移动到带日期的 archive。新代码会拒绝覆盖，
+不要把 v1/v2 文件放在同一输出树。
+
+## 1. 必做预检
 
 ```bash
+python spatial_jepa_planning/generate_confirmatory_manifest.py --check
 python spatial_jepa_planning/audit_protocol.py
 python spatial_jepa_planning/smoke_test.py
 python -m pytest -q tests/test_spatial_jepa_planning.py
 python spatial_jepa_planning/run_plan.py --stages full --dry-run \
-  > /tmp/spatial_jepa_plan.txt
+  > /tmp/spatial_jepa_plan_v2.txt
 ```
 
-确认 dry-run 中：
+预期：
 
-- Python executable 是当前 conda/venv；
-- seeds 为 42/43/44；
-- outputs 不重名；
-- Spatial-JEPA planner 指向同 seed representation checkpoint；
-- eval 的 `--limit` 与 `--max-per-size` 均明确为 `0`；
-- primary action selection 是 corrected。
+- train/development/confirmatory 数量为 2800/900/900；
+- 三个 split 的 topology/layout/task overlap 全为 0；
+- confirmatory manifest 与 generator 完全一致；
+- seeds 为 42-51；
+- dry-run 共 534 条命令、534 个唯一 output；
+- 所有 learned confirmatory model 都有 unmasked/model_valid/corrected 三份结果；
+- train command 同时有 training spec 与 analysis spec hash，eval command 复用同一
+  analysis spec hash；
+- Spatial-JEPA planner 引用同 seed representation checkpoint。
 
-## 2. Oracle 先行
+任一项失败都停止，不要开始 GPU 训练。
+
+## 2. Development 阶段
+
+旧 `unisize_eval_manifest.jsonl` 现在只作为 development。可以在这里检查实现、
+loss 曲线和 representation gate，但不能把 development 数字放入最终确认性主表。
 
 ```bash
-python spatial_jepa_planning/run_plan.py --stages anchors
+python spatial_jepa_planning/run_plan.py --stages train_representations
+python spatial_jepa_planning/run_plan.py --stages eval_representations
 ```
 
-必须检查：
+representation development gate：
+
+- 无 NaN/Inf；
+- prediction、SIGReg、wall/agent/goal/valid losses 有稳定信号；
+- decoded wall IoU 与 agent/goal accuracy 明显高于随机；
+- decoded-map BFS 可以运行，且只使用 predicted map；
+- 没有 token/channel collapse。
+
+随后运行 raw 与 Spatial-JEPA planners 的 development 评估：
+
+```bash
+python spatial_jepa_planning/run_plan.py --stages train_planners
+python spatial_jepa_planning/run_plan.py --stages eval_planners_development
+```
+
+若 development 暴露代码 bug或需要改超参数：修改、测试、提交，然后归档全部旧
+checkpoint，从头训练。不能在保留旧 checkpoint 的同时换配置继续跑。
+
+## 3. 正式冻结
+
+在第一次 learned confirmatory evaluation 前：
+
+1. 固定所有模型、loss、30000 steps、10 seeds 和 primary K；
+2. 固定三条 hypothesis、0.03 阈值/非劣界和 Bonferroni 规则；
+3. 运行全测试；
+4. 提交代码，保证 worktree clean；
+5. 从该 commit 重新训练全部 formal checkpoints。
+
+训练 checkpoint 会记录 clean-worktree 状态、Git commit、code fingerprint、
+training/analysis spec、完整 runtime、数据 hash 和源 representation hash。任何
+dirty checkpoint 或 commit/config 混用都会在 evaluator 或 summary 阶段失败。
+
+## 4. 推荐正式运行
+
+最稳妥的是在同一 homogeneous runtime 上无人干预地执行完整矩阵：
+
+```bash
+python spatial_jepa_planning/run_plan.py --stages full \
+  2>&1 | tee logs/spatial_jepa_confirm_v2.log
+```
+
+执行顺序为：audit、confirmatory oracle、representation training、development
+representation check、planner training、development planner check、confirmatory
+decoded-map、三种 action protocol 的 confirmatory planner evaluation、summary。
+
+可以用 `--seeds` 分片到多卡，但所有分片必须使用相同 Git commit、PyTorch/CUDA/
+cuDNN 版本和 GPU 型号。summary 会拒绝 runtime 混合。多卡示例：
+
+```bash
+python spatial_jepa_planning/run_plan.py \
+  --stages train_representations,train_planners \
+  --seeds 42,43 --device cuda:0
+```
+
+分片完成后，不带 `--seeds` 运行 confirmatory stages 和 summary。不要让两个进程
+写同一 seed/output。
+
+## 5. Oracle gate
+
+confirmatory 预期：
 
 ```text
-oracle_bfs SR@128 = 0.981111...
-oracle_vi K=256 SR@128 = 0.981111...
+oracle_bfs SR@128 = 0.9788888889
+oracle_vi K=256 SR@128 = 0.9788888889
+eligible_sr = 1.0
 invalid_rate = 0
 ```
 
-如果不满足，停止全部 learned experiments，先修 evaluator。
+如果不满足，停止全部 learned experiment，先修 evaluator。19 个 shortest path
+超过 128 的任务不计作模型可避免的失败。
 
-## 3. Representation
+## 6. 训练期检查
 
-```bash
-python spatial_jepa_planning/run_plan.py \
-  --stages train_representations,eval_representations \
-  2>&1 | tee logs/spatial_jepa_representation.log
-```
+每 500 steps 检查：
 
-每个 seed 检查：
+- total、action、Bellman、gap、map losses 均为 finite；
+- Bellman 不是机器零；
+- grad norm finite；
+- progressive K 按预注册 schedule 变化；
+- J2 `planner_map` 非零；
+- J3 gradient cosine/norm 有记录。
 
-- loss 无 NaN/Inf；
-- `prediction`、`map_valid`、agent/goal losses 有下降；
-- checkpoint 的 `protocol.eval_manifest_sha256` 正确；
-- decoded-map JSON 有 900 个 unique task IDs；
-- `comparable_to_full900=true`。
+代码会在 loss/gradient 非 finite 时立即退出。不要捕获异常后继续写 checkpoint。
 
-若训练内存不足，先降低 `map_batch_size`，但必须对所有 representation variants 同步修改，并更新 protocol/config；不要只改某个 seed。
+CUDA OOM 时可以统一降低所有直接比较 variants 的 batch size，但这会改变
+training spec，必须更新配置、提交并从头重跑整个比较 family。不能只改一个 seed。
 
-## 4. Raw planner mechanism gate
+## 7. Confirmatory 结果检查
 
-先跑 R0-R4：
+每个 primary learned JSON 必须满足：
 
-```bash
-python spatial_jepa_planning/run_plan.py \
-  --stages train_planners,eval_planners \
-  --variants r0_raw_value_only,r1_raw_action_ce,r2_raw_bellman_gap,r2d_raw_dilated_bellman_gap,r3_raw_iterative_fixed,r4_raw_iterative_progressive \
-  2>&1 | tee logs/spatial_planner_raw.log
-```
+- `split_role=confirmatory`；
+- `action_selection=unmasked`；
+- `comparable_to_primary=true`；
+- 900 个唯一 task rows；
+- `max_steps=128`、evaluation seed 42；
+- checkpoint/training/analysis/code hashes 完整；
+- static field，没有 every-step recompute。
 
-检查：
+同一 checkpoint 还必须有 model_valid 和 corrected JSON，二者
+`comparable_to_primary=false`。它们只用于量化 assistance gap。
 
-- `planner_action` 接近并优于随机 CE `log(4)=1.386`；
-- `planner_bellman` 不是接近机器零；
-- K 曲线包含全部预注册点；
-- R4 K=128 是 primary，不能改为 test SR 最大的 K；
-- K=256 是否 overthink；
-- OOD 与 long-path 是否从额外 iterations 中受益。
-
-J2 还应看到非零 `planner_map`；若为零，说明 map-preservation loss 没有进入训练。
-
-若 R4 不超过 full-receptive-field R2D，不应继续声称 recurrent planning 是主解决方案；先检查目标函数、更新稳定性和 K mask。
-
-## 5. Spatial integration
-
-```bash
-python spatial_jepa_planning/run_plan.py \
-  --stages train_planners,eval_planners \
-  --variants j0_spatial_feedforward,j1_spatial_iterative_frozen,j2_spatial_iterative_lastblock,j3_spatial_iterative_joint \
-  2>&1 | tee logs/spatial_planner_jepa.log
-```
-
-顺序上应先确认 J0/J1，再跑 J2/J3。J3 日志每 500 step 输出：
-
-```text
-gradient_audit cosine=... rep_norm=... plan_norm=...
-```
-
-若 cosine 长期显著为负且 J3 同时损伤 decoded-map 或 SR，应保留 J1/J2 作为主方法，不要为“端到端”强行使用 J3。
-
-## 6. 汇总
+## 8. 严格汇总
 
 ```bash
 python spatial_jepa_planning/summarize.py
 ```
 
-脚本遇到以下情况会拒绝汇总：
+默认不允许缺 seed、缺 variant、缺 diagnostic protocol、缺 task row 或覆盖旧报告。
+汇总会检查 source representation、checkpoint SHA、training spec、analysis spec、训练
+与评估时的 clean-worktree 状态、代码 fingerprint，以及 Python/NumPy/PyTorch/CUDA/
+cuDNN/GPU runtime 一致性。主表分别列出 planner、representation planning path 与
+两者合计的参数量和 size-25 Conv2d GMACs，并另列 9 个 maze size 的 SR。
 
-- 少一个 seed；
-- eval manifest hash 不同；
-- 不是 full900；
-- `max_steps != 128`；
-- action selection 不是 corrected；
-- learned primary 使用了 every-step recompute；
-- paired candidate/baseline task IDs 不一致；
-- primary K 缺失。
+三条确认性判定：
 
-## 7. GPU/数值故障
+- H1 R4-R2D：simultaneous CI lower bound `>= +0.03`；
+- H2 J1-R4：simultaneous CI lower bound `> -0.03`；
+- H3 J2-J1：simultaneous CI lower bound `>= +0.03`。
 
-默认 `device=auto`，CUDA 可用时选 CUDA，否则选 CPU。多卡服务器应使用
-`run_plan.py --device cuda:N ...` 锁定设备；实际 resolved device 会写入训练
-checkpoint 和 evaluation JSON。
+不满足就写 `not_supported`，不能用单 seed、nominal 95% CI、最佳 K 或 corrected
+结果挽救结论。
 
-### CUDA OOM
+## 9. 最终归档
 
-优先降低 `map_batch_size` 或 `trajectories_per_map`。不要降低 maze size、K 或 eval task count 来伪装成完整实验。变更 batch 后所有直接比较 variants 必须同步重跑。
+归档以下内容：
 
-### NaN/Inf
+- Git commit 和 clean-worktree 证明；
+- config、protocol lock、confirmatory manifest SHA；
+- 10 个 representation checkpoints；
+- 100 个 planner checkpoints；
+- development 与 confirmatory JSON；
+- unmasked/model_valid/corrected task rows；
+- oracle、summary Markdown/JSON 和完整日志；
+- 失败运行、OOM、人工中断与任何 protocol deviation。
 
-保存日志并停止该矩阵。依次检查：
-
-1. SIGReg projection；
-2. covariance loss；
-3. gradient norm；
-4. value field 极值；
-5. mixed precision 是否被外部 wrapper 打开。
-
-默认代码没有启用 AMP，便于第一轮定位数值问题。
-
-### Local top-1 高但 SR 低
-
-查看：
-
-- margin 是否仍接近 0；
-- 错误是否集中在长路径/少数 junction；
-- static policy 是否形成 cycle；
-- K 增加是否改变错误动作；
-- corrected no-backtracking 是否掩盖 policy 本身的问题。
-
-### Decoded BFS 高、learned JEPA 低
-
-表征足够，planner 没学会算法。优先改 recurrence/Bellman/action gap，不要继续堆 map auxiliary。
-
-### Raw recurrent 高、JEPA recurrent 低
-
-规划器有效，JEPA planning branch 不够。检查 wall/goal decoder、token resolution 和 frozen/last-block 差异。
-
-## 8. 报告时必须附带
-
-- Git commit；
-- config 和 protocol lock；
-- 3 个 seed checkpoint metadata；
-- full task rows；
-- audit JSON；
-- primary results 与完整 K curve；
-- paired bootstrap CI；
-- failed runs 和任何 protocol deviations。
-
-任何 deviation 都应单独标注，不能覆盖同名正式结果。
+旧 BC、latent-L2、P4 数字只能标为 legacy-development context。没有在新确认集上
+按同一 evaluator 重跑之前，禁止写“超过 BC/LeWM”。

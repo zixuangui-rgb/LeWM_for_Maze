@@ -1,139 +1,175 @@
-# Alignment Protocol
+# Alignment and Inference Protocol v2
 
-本文档是本轮实验的比较合同。违反其中任一 primary rule 的结果必须标成 diagnostic，不得放入主表。
+本文档是本轮实验的比较合同。代码、配置或报告只要违反一项 primary rule，
+对应结果就只能标为 diagnostic，不能进入确认性主表。
 
-## 1. 固定数据
+## 1. 三个数据角色
 
-| Split | 文件 | SHA256 | 数量 | Sizes |
-|---|---|---|---:|---|
-| Train | `data/splits/unisize_train_manifest.jsonl` | `1c477d...a05f6` | 2800 | 9-21，每 size 400 |
-| Eval | `data/splits/unisize_eval_manifest.jsonl` | `210e2d...b8d9` | 900 | 9-25，每 size 100 |
+| Role | Manifest | 数量 | Sizes | 用途 |
+|---|---|---:|---|---|
+| Train | `unisize_train_manifest.jsonl` | 2800 | 9-21，每 size 400 | 所有 final checkpoint |
+| Development | `unisize_eval_manifest.jsonl` | 900 | 9-25，每 size 100 | 已反复使用，只能调试和选方案 |
+| Confirmatory | `spatial_jepa_confirm_eval_manifest.jsonl` | 900 | 9-25，每 size 100 | 新 topology，一次性最终检验 |
 
-完整 hash 位于 `configs/protocol_lock.json`。`audit_protocol.py` 会验证 topology、layout 和 task 三层 overlap 都为 0。
+完整 SHA256 位于 `configs/protocol_lock.json`。旧 Set-B eval900 已参与此前的
+诊断和方法设计，因此不再被称为“未触碰测试集”。新确认集由
+`generate_confirmatory_manifest.py` 确定性生成；正式运行前必须提交到 Git，
+之后不得根据其 learned-model 结果修改模型、loss、K、seed 或判定规则。
 
-所有 final checkpoints 使用完整 2800 train manifest。若要调超参数，应另外建立 development train/validation 划分；确定配置后再从头用完整 2800 训练。不得根据 eval900 选择 loss、epoch 或 primary K。
+`audit_protocol.py` 会重建全部 4600 个任务，并用与旧 manifest hash 无关的
+canonical geometry hash 验证：
 
-## 2. 固定评估
+- 每个 split 内 topology/layout/task 唯一；
+- train/development/confirmatory 两两 topology、layout、task overlap 为 0；
+- 确认集与生成器逐条完全一致；
+- manifest 文件 SHA256、size 计数、goal、wall、start 和 BFS distance 正确。
 
-Primary navigation protocol：
+## 2. Primary 与辅助动作协议
+
+Primary absolute-ability protocol：
 
 | 字段 | 固定值 |
 |---|---|
-| Eval tasks | manifest 全部 900 个固定 start/goal task |
+| Split | confirmatory 全部 900 个固定任务 |
 | `max_steps` | 128 |
-| Moving actions | `[UP, DOWN, LEFT, RIGHT] = [1,2,3,4]` |
-| Action correction | mask no-move action；若可能则避免 immediate backtracking |
-| Learned field | 每个 task 起点计算一次全图 field |
-| Seen/OOD | seen 9-21；OOD 23/25 |
-| Task output | 必须保存全部 900 个 task rows |
+| Actions | `[UP, DOWN, LEFT, RIGHT] = [1,2,3,4]` |
+| Action selection | `unmasked`，完全采用模型排序 |
+| Learned field | 每个 task 起点只计算一次全图 field |
+| Primary K | config 中预注册 |
+| Eval sampling seed | 所有 checkpoint 固定为 42 |
 
-“每个 task 计算一次 field”适用于输出全图 policy/value 的模型。因为墙和 goal 在 episode 内不变，模型应学习与 agent marker 无关的全图解。`--recompute-every-step` 只用于检查 agent-channel sensitivity，不进入 primary summary。
+必须对同一 checkpoint 额外运行：
 
-## 3. Step-cap 上界
+- `model_valid`：使用模型自己的 valid head；
+- `corrected`：使用真实墙体移除 no-move action，并尽量避免 immediate
+  backtracking。
 
-Eval900 中有 17 个 task 的 oracle shortest path 大于 128。因此：
+后两者用于量化外部帮助，不是绝对能力。报告必须同时展示三者，且不得用
+`corrected` 替代 `unmasked`。`--recompute-every-step` 只用于 agent-marker
+sensitivity，不进入确认性汇总。
+
+decoded-map BFS 只根据预测 wall/agent/goal 选动作，不调用真实地图 correction。
+它衡量 representation sufficiency，不等同于“JEPA 自己学会规划”。
+
+## 3. Step-cap 与分层报告
+
+确认集有 19 个任务的 shortest path 大于 128：
 
 ```text
-SR@128 理论上限 = 883 / 900 = 0.981111...
+SR@128 理论上限 = 881 / 900 = 0.9788888889
 ```
 
-本目录的 exact BFS 和 `oracle_vi K=256` 都必须达到这个值。旧报告的 P4 VI 为 `0.957`，说明旧实现还存在约 22 个非 step-cap failure；它保留为历史锚点，但不再是新 evaluator 的预期 oracle。
+exact BFS 和 oracle VI K=256 必须达到该值，eligible SR 必须为 1.0。正式报告
+同时给出：
 
-正式报告应同时给出：
-
-- `SR@128`，用于与旧实验比较；
-- seen/OOD；
+- 全 900 `SR@128`、SPL；
+- `optimal_length <= 128` 的 eligible SR；
+- seen 9-21 与 size-OOD 23/25；
 - per-size；
-- 按 shortest-path bins 的补充结果。
+- shortest-path bins `1-16/17-32/33-64/65-128/129+`；
+- invalid action 与 loop/cycle rate；其中 loop/cycle 固定定义为任一 state 在单局中
+  被访问至少 4 次。
 
-不得把 17 个不可完成 task 解释成模型规划错误。
+`129+` 是协议造成的结构性删失，不能解释为普通模型规划错误。
 
-## 4. 训练预算对齐
+## 4. 训练一致性
 
-`audit_protocol.py` 强制所有 planner variants 的以下字段一致：
+所有 planner variants 固定：
 
-- `steps=30000`；
-- `map_batch_size=8`；
-- AdamW、`lr=1e-3`、cosine schedule；
-- `weight_decay=0`；
-- `grad_clip=1`；
-- `distance_scale=128`；
-- train/eval manifests；
-- training seeds 42/43/44。
+- 30000 optimizer steps、map batch 8；
+- hidden dim 64、recall 开启；
+- AdamW、LR `1e-3`、weight decay 0、cosine schedule；
+- gradient clip 1、distance scale 128；
+- train/development/confirmatory manifests；
+- training seeds 42-51，共 10 个。
 
-Training seed 与 evaluation sampling seed 分离。三个 checkpoints 分别记录 42/43/44，但 local diagnostics 对所有模型固定使用 evaluation seed 42，确保抽取的是同一批 states。
+四条 NumPy 随机流相互独立：maze entries、map states、JEPA trajectories、K
+schedule。一个 ablation 多抽一次 K 或 trajectory 不会改变下一步训练样本。
 
-允许变化的因素必须在 variant 表中显式列出：
+正式 CLI 默认拒绝：
 
-- input 是 raw grid 还是 Spatial-JEPA；
-- feedforward 还是 shared-weight recurrence；
-- loss 开关；
-- fixed/random/progressive K；
-- encoder frozen/last-block/joint。
+- 脏 worktree；
+- 非确定性训练；
+- 未锁定 training spec/analysis spec；
+- 覆盖已有 checkpoint/result；
+- NaN/Inf loss、gradient 或 evaluator output；
+- 不同源码 fingerprint、checkpoint hash、runtime 或 source representation 的混跑。
 
-## 5. Local top-1 对齐
+每个 checkpoint 保存训练参数、manifest hashes、training/analysis spec、训练时的
+Git commit/dirty 状态、代码 fingerprint、完整 runtime、源 representation SHA256、
+训练样本记账和 inference Conv2d MACs。严格汇总不仅拒绝脏评估结果，也拒绝由脏
+worktree 训练出的 checkpoint。
 
-为了与旧 diagnostics 对齐，主 `local_top1` 使用：
+## 5. K 与计算量
 
-- eval entries 按旧 `select_entries(seed+101)` 顺序；
-- 先按旧 metric-alignment 代码消耗 `pairs_per_maze=128` 的 RNG draws；
-- 每 maze 由 `seed+202` 不放回抽 24 个 free states；
-- 只统计至少有两个 valid moving actions 的非 goal states；
-- tie shortest paths 全部计为正确；
-- 先算每 maze top-1，再对 maze 做 macro average。
+Progressive recurrent 模型：
 
-结果同时保存 `all_cell_local_top1`，但不得把它与旧 `Local top-1 ~= 0.588` 直接互换。
+```text
+K_train = {4, 8, 16, 32, 64, 128}
+K_test  = {4, 8, 16, 32, 64, 128, 256}
+```
 
-## 6. K 的预注册
+Primary K：feedforward 4、fixed recurrent 64、progressive recurrent 128。不得从
+confirmatory K curve 选择最大 SR。K=4 提供同一 recurrent checkpoint 的低计算
+参考；报告必须分别给 planner、Spatial-JEPA encoder + planning projector 和总计的
+size-25 参数量/GMACs。R4 K128 对 R2D 的差异是“完整 iterative system + 更多迭代
+计算”的效果，不能单独归因于 weight sharing 或 recurrence。
 
-每个 variant 在 `configs/default.json` 中写死 `primary_iterations`：
+## 6. 三条确认性假设
 
-- feedforward：depth 4；
-- fixed recurrent：K=64；
-- progressive recurrent：K=128。
+Family-wise alpha 为 0.05，三条假设使用 Bonferroni simultaneous CI，即每条
+双侧 CI 的 alpha 为 `0.05 / 3`。seed 和 task 是交叉重复测量：bootstrap 每次
+重采样 training seeds，并对所有 seed 共用同一批重采样 task IDs。
 
-测试时额外报告 `K={8,16,32,64,128,256}` 曲线，回答 test-time compute scaling 和 overthinking。不得从这条 test curve 取最大 SR 作为主结果。
+### H1：迭代系统的实际增益
 
-## 7. 多 seed 与统计
+`R4 progressive K128 - R2D dilated depth4`。
 
-正式结果至少 3 个独立 training seeds。`summarize.py`：
+只有 simultaneous CI 的 lower bound `>= +0.03 SR` 才写“支持”。这验证完整
+迭代系统具有至少 3 个百分点的可靠增益，不隔离额外计算量。
 
-1. 验证每个结果的 eval hash、task count、max steps 和 action protocol；
-2. 验证 candidate/baseline 的 task IDs 完全相同；
-3. 先重采样 training seeds，再在 seed 内重采样固定 tasks；
-4. 报告 delta SR/SPL 的 95% hierarchical paired-bootstrap CI。
+### H2：Spatial-JEPA 非劣于 raw input
 
-若 95% CI 包含 0，结论应写成“未发现稳定提升”，不能根据单个 seed 宣称有效。
+`J1 frozen Spatial-JEPA - R4 raw`，相同 iterative planner family 与 primary K。
 
-## 8. 可比性等级
+非劣界值为 `-0.03 SR`。只有 simultaneous CI lower bound `> -0.03` 才支持
+“Spatial-JEPA 在该协议下保留了足够规划信息”。不能据此声称优于原始 LeWM，
+因为本矩阵没有同 evaluator 的 compressed-LeWM 对照。
 
-### Level A：严格因果比较
+### H3：staged adaptation 的增益
 
-由本目录同一代码、同一 evaluator、同一 seeds 和同一 manifest 生成的 variants。例如：
+`J2 last-block + map preservation - J1 frozen`。
 
-- R2 feedforward losses vs R4 recurrent same losses；
-- raw recurrent vs Spatial-JEPA recurrent frozen；
-- frozen vs last-block vs joint。
+只有 simultaneous CI lower bound `>= +0.03 SR` 才支持“受约束的 staged
+adaptation 带来至少 3 个百分点增益”。该 estimand 是完整 adaptation package，
+不单独归因于解冻或 map loss。
 
-`decoded-map BFS` 单独使用 predicted-map action selection，不调用 oracle valid-action correction。它与 learned planner 不属于同一 action-selection protocol，因此只用于 representation sufficiency，不做 paired planner claim。
+其余 R0-R3、J0、J3 比较均为 exploratory，不得改写成确认性成功。
 
-### Level B：协议一致参考
+## 7. Local metric 对齐
 
-旧 latent-L2/BC/P4 报告使用同一 Set-B full900 和 max steps，但没有统一 task rows 或当前 evaluator。可以作绝对水平参考，不适合 paired significance claim。
+为延续旧 diagnostics，local top-1 固定：eval entry 使用 `seed+101` 顺序；先
+消耗旧 pair-sampling RNG draws；每 maze 用 `seed+202` 不放回抽 24 个 free
+states；只统计至少两个 valid actions 的非 goal states；并列 shortest actions
+全部算正确；先按 maze 算，再做 macro average。
 
-### Level C：机制参考
+`all_cell_local_top1` 另存，但不能与旧约 0.588 的 sampled Local top-1 混用。
 
-- `r0_raw_value_only` vs 旧 FCVP；
-- 新 oracle VI vs 旧 P4 VI。
+## 8. 可得与不可得的结论
 
-它们回答机制是否复现，不是代码逐字节复现。
+本实验可以回答：
 
-## 9. 禁止的比较
+- topology hold-out 和 size 23/25 上的端到端绝对能力；
+- 增加 recurrent test-time compute 是否带来稳定收益；
+- Spatial-JEPA 是否在给定 planner 下达到预注册非劣标准；
+- frozen、staged、joint integration 的差异和梯度冲突。
 
-- full900 与 seen-only n=700；
-- full900 与 max-per-size 40；
-- `SR@128` 与不同 episode budget；
-- corrected action selection 与 unmasked policy；
-- test set 上调出的 K 与预注册 K；
-- 单 seed 最优值与 3-seed mean；
-- decoded-map BFS 与 fully learned planner 混称为“JEPA 学会规划”。
+本实验不能单独回答：
+
+- 是否超过旧 BC、latent-L2 或原始 LeWM；它们未在新确认集上同协议重跑；
+- 是否具备纹理、颜色、背景、跨任务或跨环境泛化；
+- recurrence 是否在等 FLOPs 下优于所有 feedforward architecture；
+- corrected SR 是否代表模型无需外部帮助的能力；
+- 单个 seed、最佳 K 或 development 最优值是否成立。
+
+任何超出以上边界的文字必须标成后续假设，而不是本轮结论。

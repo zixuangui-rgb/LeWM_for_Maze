@@ -23,12 +23,19 @@ from spatial_jepa_planning import EXPERIMENT_FAMILY, FORMAT_VERSION
 from spatial_jepa_planning.common import (
     ManifestSampler,
     configure_representation_training,
+    estimate_planner_conv_macs,
+    estimate_representation_planning_conv_macs,
+    experiment_code_fingerprint,
+    git_commit,
     gradient_cosine,
     load_representation_checkpoint,
+    make_rng_streams,
     parameter_count,
     parse_int_list,
     planner_features,
     protocol_metadata,
+    require_clean_worktree,
+    require_new_output,
     resolve_device,
     sample_map_batch,
     sample_sequence_batch,
@@ -65,7 +72,11 @@ def parse_args() -> argparse.Namespace:
         "--train-manifest", default="data/splits/unisize_train_manifest.jsonl"
     )
     parser.add_argument(
-        "--eval-manifest", default="data/splits/unisize_eval_manifest.jsonl"
+        "--eval-manifest",
+        default="data/splits/spatial_jepa_confirm_eval_manifest.jsonl",
+    )
+    parser.add_argument(
+        "--development-manifest", default="data/splits/unisize_eval_manifest.jsonl"
     )
     parser.add_argument("--output", required=True)
     parser.add_argument("--representation-ckpt", default=None)
@@ -113,7 +124,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--planner-depth", type=int, default=8)
     parser.add_argument("--no-recall", dest="recall", action="store_false")
     parser.set_defaults(recall=True)
-    parser.add_argument("--train-iterations", default="8,16,32,64")
+    parser.add_argument("--train-iterations", default="4,8,16,32,64,128")
     parser.add_argument(
         "--iteration-schedule",
         choices=("fixed", "random", "progressive"),
@@ -131,6 +142,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--lambda-joint-representation", type=float, default=1.0)
     parser.add_argument("--lambda-planner-map", type=float, default=0.0)
     parser.add_argument("--gradient-audit-every", type=int, default=500)
+    parser.add_argument("--experiment-spec-sha256", default="")
+    parser.add_argument("--analysis-spec-sha256", default="")
+    parser.add_argument("--allow-unlocked-spec", action="store_true")
+    parser.add_argument("--allow-dirty-worktree", action="store_true")
+    parser.add_argument("--overwrite", action="store_true")
     return parser.parse_args()
 
 
@@ -300,6 +316,18 @@ def mean_window(history: list[dict[str, float]], size: int) -> dict[str, float]:
 
 def main() -> None:
     args = parse_args()
+    require_clean_worktree(args.allow_dirty_worktree)
+    require_new_output(args.output, args.overwrite)
+    if not args.experiment_spec_sha256 and not args.allow_unlocked_spec:
+        raise ValueError(
+            "formal training requires --experiment-spec-sha256 from run_plan.py"
+        )
+    if not args.analysis_spec_sha256 and not args.allow_unlocked_spec:
+        raise ValueError(
+            "formal training requires --analysis-spec-sha256 from run_plan.py"
+        )
+    if not args.deterministic and not args.allow_unlocked_spec:
+        raise ValueError("formal training requires --deterministic")
     if args.steps <= 0 or args.map_batch_size <= 0:
         raise ValueError("steps and map-batch-size must be positive")
     if args.stage == "representation" and args.input_mode != "raw":
@@ -321,9 +349,15 @@ def main() -> None:
     device = resolve_device(args.device)
     args.device = str(device)
     set_seed(args.seed, deterministic=args.deterministic)
-    rng = np.random.default_rng(args.seed)
+    streams = make_rng_streams(args.seed)
     train_entries, _, overlap = validate_manifest_pair(
         args.train_manifest, args.eval_manifest
+    )
+    _, _, development_overlap = validate_manifest_pair(
+        args.train_manifest, args.development_manifest
+    )
+    _, _, eval_overlap = validate_manifest_pair(
+        args.development_manifest, args.eval_manifest
     )
     sampler = ManifestSampler(train_entries)
     iterations = parse_int_list(args.train_iterations)
@@ -351,6 +385,42 @@ def main() -> None:
                 args.eval_manifest
             ):
                 raise ValueError("source representation eval manifest does not match")
+            if source_protocol.get("development_manifest_sha256") != sha256_file(
+                args.development_manifest
+            ):
+                raise ValueError(
+                    "source representation development manifest does not match"
+                )
+            if source_protocol.get("code_fingerprint") != experiment_code_fingerprint():
+                raise ValueError(
+                    "source representation was produced by different experiment code"
+                )
+            if (
+                source_protocol.get("git_dirty") is not False
+                and not args.allow_dirty_worktree
+            ):
+                raise ValueError(
+                    "formal planner training rejects a representation checkpoint "
+                    "created from a dirty worktree"
+                )
+            if not source_protocol.get("git_commit") and not args.allow_dirty_worktree:
+                raise ValueError("source representation is missing its Git commit")
+            if (
+                source_protocol.get("git_commit") != git_commit()
+                and not args.allow_dirty_worktree
+            ):
+                raise ValueError(
+                    "source representation and planner training must use the same "
+                    "Git commit"
+                )
+            if (
+                source_checkpoint.get("analysis_spec_sha256")
+                != args.analysis_spec_sha256
+            ):
+                raise ValueError(
+                    "source representation analysis spec does not match "
+                    "planner training"
+                )
         if source_checkpoint and "target_state_dict" in source_checkpoint:
             target = make_ema_target(representation)
             target.load_state_dict(source_checkpoint["target_state_dict"], strict=True)
@@ -427,9 +497,10 @@ def main() -> None:
 
     history: list[dict[str, float]] = []
     gradient_history: list[dict[str, float]] = []
+    run_started = time.time()
     started = time.time()
     for step in range(1, args.steps + 1):
-        selected = sampler.sample(rng, args.map_batch_size)
+        selected = sampler.sample(streams.entries, args.map_batch_size)
         metrics: dict[str, torch.Tensor] = {}
         representation_total: torch.Tensor | None = None
         planning_total: torch.Tensor | None = None
@@ -438,7 +509,7 @@ def main() -> None:
             assert representation is not None and target is not None
             sequence_obs, sequence_actions, sequence_valid = sample_sequence_batch(
                 selected,
-                rng=rng,
+                rng=streams.sequences,
                 device=device,
                 sequence_length=args.seq_len,
                 trajectories_per_map=args.trajectories_per_map,
@@ -457,7 +528,9 @@ def main() -> None:
 
         if args.stage in {"planner", "joint"}:
             assert planner is not None
-            map_obs, map_targets = sample_map_batch(selected, rng, device)
+            map_obs, map_targets = sample_map_batch(
+                selected, streams.map_states, device
+            )
             features = planner_features(map_obs, args.input_mode, representation)
             count = (
                 args.planner_depth
@@ -467,7 +540,7 @@ def main() -> None:
                     args.iteration_schedule,
                     step,
                     args.steps,
-                    rng,
+                    streams.iteration_schedule,
                 )
             )
             outputs = planner(
@@ -539,10 +612,29 @@ def main() -> None:
                 )
 
         metrics["total"] = total
+        if not bool(torch.isfinite(total)):
+            raise FloatingPointError(
+                f"non-finite training loss at step={step}: "
+                f"{float(total.detach().cpu())}"
+            )
         optimizer.zero_grad(set_to_none=True)
         total.backward()
         if args.grad_clip > 0:
-            torch.nn.utils.clip_grad_norm_(optimizer_parameters, args.grad_clip)
+            grad_norm = torch.nn.utils.clip_grad_norm_(
+                optimizer_parameters, args.grad_clip
+            )
+        else:
+            squared = total.new_tensor(0.0)
+            for parameter in optimizer_parameters:
+                if parameter.grad is not None:
+                    squared = squared + parameter.grad.detach().square().sum()
+            grad_norm = squared.sqrt()
+        if not bool(torch.isfinite(grad_norm)):
+            raise FloatingPointError(
+                f"non-finite gradient norm at step={step}: "
+                f"{float(grad_norm.detach().cpu())}"
+            )
+        metrics["grad_norm"] = grad_norm
         optimizer.step()
         if scheduler is not None:
             scheduler.step()
@@ -582,6 +674,48 @@ def main() -> None:
             )
             started = time.time()
 
+    planner_inference_macs: dict[str, dict[str, int]] | None = None
+    representation_inference_macs: dict[str, int] | None = None
+    representation_planning_parameter_count = 0
+    if planner is not None:
+        mac_iterations = (
+            (args.planner_depth,)
+            if args.planner_type.startswith("feedforward")
+            else tuple(sorted({*iterations, 256}))
+        )
+        planner_inference_macs = {
+            str(size): {
+                str(count): estimate_planner_conv_macs(
+                    planner,
+                    input_channels=int(planner.config.input_channels),
+                    maze_size=size,
+                    iterations=count,
+                    device=device,
+                )
+                for count in mac_iterations
+            }
+            for size in (21, 25)
+        }
+        if representation is None:
+            representation_inference_macs = {str(size): 0 for size in (21, 25)}
+        else:
+            representation_inference_macs = {
+                str(size): estimate_representation_planning_conv_macs(
+                    representation,
+                    maze_size=size,
+                    device=device,
+                )
+                for size in (21, 25)
+            }
+            representation_planning_parameter_count = sum(
+                parameter.numel()
+                for module in (
+                    representation.encoder,
+                    representation.planning_projector,
+                )
+                for parameter in module.parameters()
+            )
+
     payload: dict[str, Any] = {
         "experiment_family": EXPERIMENT_FAMILY,
         "format_version": FORMAT_VERSION,
@@ -589,14 +723,36 @@ def main() -> None:
         "variant_name": args.variant_name,
         "input_mode": args.input_mode,
         "training_args": vars(args),
+        "experiment_spec_sha256": args.experiment_spec_sha256,
+        "analysis_spec_sha256": args.analysis_spec_sha256,
         "protocol": protocol_metadata(
             train_manifest=args.train_manifest,
             eval_manifest=args.eval_manifest,
+            development_manifest=args.development_manifest,
             seed=args.seed,
             max_steps=args.max_steps,
         ),
-        "holdout": overlap,
+        "holdout": {
+            "train_vs_confirmatory": overlap,
+            "train_vs_development": development_overlap,
+            "development_vs_confirmatory": eval_overlap,
+        },
         "training_summary": mean_window(history, min(args.log_every, len(history))),
+        "training_accounting": {
+            "elapsed_seconds": float(time.time() - run_started),
+            "optimizer_steps": int(args.steps),
+            "planner_map_examples": int(args.steps * args.map_batch_size)
+            if args.stage in {"planner", "joint"}
+            else 0,
+            "representation_trajectories": int(
+                args.steps * args.map_batch_size * args.trajectories_per_map
+            )
+            if args.stage in {"representation", "joint"}
+            else 0,
+            "sequence_length": int(args.seq_len)
+            if args.stage in {"representation", "joint"}
+            else 0,
+        },
         "gradient_history": gradient_history,
         "source_representation_ckpt": args.representation_ckpt,
         "source_representation_sha256": sha256_file(args.representation_ckpt)
@@ -612,6 +768,14 @@ def main() -> None:
         payload["planner_config"] = planner.config.to_dict()
         payload["planner_state_dict"] = planner.state_dict()
         payload["planner_parameter_count"] = parameter_count(planner)
+        payload["representation_planning_parameter_count"] = (
+            representation_planning_parameter_count
+        )
+        payload["total_inference_parameter_count"] = (
+            parameter_count(planner) + representation_planning_parameter_count
+        )
+        payload["planner_inference_conv_macs"] = planner_inference_macs
+        payload["representation_inference_conv_macs"] = representation_inference_macs
     save_checkpoint(args.output, payload)
     print(f"saved={args.output}")
 

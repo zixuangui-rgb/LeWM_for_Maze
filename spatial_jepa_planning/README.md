@@ -1,161 +1,124 @@
 # Spatial-JEPA Iterative Planning
 
-这是 Maze-JEPA 诊断和 `planning_repair` 之后的下一阶段实验包。它要回答的核心问题是：
+这是 Maze-JEPA diagnostics 和 `planning_repair` 之后的确认性实验包。它检验：
 
-> 保留逐格空间结构的 JEPA 表征，配合可重复执行的局部规划算法，能否突破当前约 `0.63-0.64` 的 latent/feedforward planning 水平，并在更大 maze 上通过增加 test-time iterations 获得泛化？
+1. 增加可重复局部计算的 iterative system 是否稳定改善 raw-grid planning；
+2. full-resolution Spatial-JEPA 在相同 planner family 下是否不劣于 raw input；
+3. 保留 map information 的 staged adaptation 是否优于 frozen representation。
 
-本目录不修改旧 `hdwm/`、`diagnostics/` 或 `planning_repair/` 的 checkpoint 格式。它复用同一个 Procgen Maze 环境和同一组 Set-B manifests，并通过 SHA256 protocol lock 固定比较协议。
+旧 Set-B eval900 已参与方法开发，现在只作为 development。最终结论使用新生成且
+预注册的 900-task confirmatory topology hold-out。绝对能力以完全 `unmasked`
+action selection 为准，`model_valid` 和 oracle `corrected` 仅用于诊断帮助量。
 
 ## 目录
 
 ```text
 spatial_jepa_planning/
-  models.py                 # Spatial-JEPA、feedforward、gated recurrent planner、oracle VI
-  losses.py                 # tie-aware action、Bellman、action-gap、map、collapse losses
-  common.py                 # manifest、BFS labels、sampling、checkpoint、统计工具
-  train.py                  # representation / planner / joint 三阶段训练
-  evaluate.py               # learned field、decoded-map BFS、exact BFS、oracle VI
-  audit_protocol.py         # 3700 个任务与配置的 fail-fast 审计
-  run_plan.py               # JSON 驱动的完整实验编排
-  summarize.py              # 多 seed 汇总和分层配对 bootstrap
-  smoke_test.py             # CPU 前向、反向、EMA、checkpoint integration test
-  configs/default.json      # 预注册实验矩阵
-  configs/protocol_lock.json# manifest hash、旧结果锚点和主评估协议
-  DESIGN.md                 # 科学问题、架构、损失、实验矩阵和判据
-  ALIGNMENT_PROTOCOL.md     # 与旧实验严格对齐的规则
-  RUNBOOK.md                # 服务器执行和故障排查手册
+  models.py                         # Spatial-JEPA、FF/recurrent planner、oracle VI
+  losses.py                         # tie-aware CE、Bellman、gap、map/collapse losses
+  common.py                         # labels、RNG streams、hash、runtime、metrics
+  train.py                          # representation / planner / joint training
+  evaluate.py                       # learned、decoded BFS、exact BFS、oracle VI
+  generate_confirmatory_manifest.py # 确认集确定性生成与逐字节验证
+  audit_protocol.py                 # 4600-task 三路 split 与配置审计
+  run_plan.py                       # 534-command formal matrix 编排
+  summarize.py                      # 十 seed crossed bootstrap 与严格结论判定
+  smoke_test.py                     # CPU integration smoke test
+  configs/default.json              # 模型、K、seed、hypothesis 预注册
+  configs/protocol_lock.json        # 三个 manifest 与评估上限锁
+  DESIGN.md                         # 架构、loss、实验问题
+  ALIGNMENT_PROTOCOL.md             # 正式比较和推断合同
+  RUNBOOK.md                        # 服务器运行步骤
 ```
 
-## 环境
-
-使用服务器原项目环境，不要硬编码 Python 路径：
+## 安装与预检
 
 ```bash
 cd LeWM_for_Maze
 pip install -e '.[dev]'
-```
 
-代码需要 Python 3.10+、PyTorch 2.0+、NumPy、Gymnasium、Pydantic 和 OmegaConf。总控脚本始终使用启动它的 `sys.executable`。
-默认 `device=auto`：检测到 CUDA 时使用 CUDA，否则回退到 CPU。可用
-`run_plan.py --device cuda:1 ...` 显式指定服务器 GPU。
-
-## 必做预检
-
-```bash
+python spatial_jepa_planning/generate_confirmatory_manifest.py --check
 python spatial_jepa_planning/audit_protocol.py
 python spatial_jepa_planning/smoke_test.py
 python -m pytest -q tests/test_spatial_jepa_planning.py
 python spatial_jepa_planning/run_plan.py --stages full --dry-run
 ```
 
-`audit_protocol.py` 会逐个重建 train 2800 和 eval 900 个任务，并验证：
+审计必须确认：train/development/confirmatory 为 2800/900/900；三层 overlap
+全为 0；确认集与 generator 完全一致；10 个 training seeds；534 个唯一 output。
 
-- manifest SHA256；
-- topology/layout/task overlap 均为 0；
-- goal、wall count 和 BFS path length 与 manifest 一致；
-- 每个新 planner 的训练步数、batch、LR、scheduler 和 distance scale 对齐；
-- 至少有 3 个独立 training seeds；
-- reference JSON 没有被改写。
+默认 `device=auto`，有 CUDA 时使用 CUDA，否则 CPU。多卡可显式传
+`--device cuda:N`。正式矩阵要求所有 seed 使用一致的 PyTorch/CUDA/cuDNN 和
+GPU 型号。
 
-任何一项不一致都会直接退出，不会生成一个标为“可比较”的结果。
+## 正式运行
 
-## 推荐运行顺序
-
-### 1. 训练 Spatial-JEPA
+在 clean Git commit、无旧输出的条件下：
 
 ```bash
+python spatial_jepa_planning/run_plan.py --stages full \
+  2>&1 | tee logs/spatial_jepa_confirm_v2.log
+```
+
+也可以按阶段执行：
+
+```bash
+# development representation gate
 python spatial_jepa_planning/run_plan.py \
-  --stages audit,train_representations,eval_representations
-```
+  --stages train_representations,eval_representations
 
-默认运行 `seed=42,43,44`。representation 使用：
-
-- stride-one full-resolution spatial tokens；
-- online/EMA target encoder；
-- action-conditioned next-spatial-latent prediction；
-- 与旧实验同一类 SIGReg；
-- wall、agent、goal 和 valid-action planning auxiliaries；
-- 分开的 dynamics projector 与 planning projector。
-
-`eval_representations` 使用 decoder 输出的 wall/agent/goal 执行 BFS。它不使用 oracle occupancy，是 representation sufficiency test。
-decoded planner 的动作也只根据预测地图产生；`corrected` oracle action mask 不用于该主结果。
-
-### 2. 训练 planner matrix
-
-```bash
-python spatial_jepa_planning/run_plan.py --stages train_planners
-```
-
-默认矩阵包括：
-
-- raw value-only feedforward；
-- raw all-state action CE；
-- raw Bellman/action-gap feedforward；
-- raw dilated full-receptive-field feedforward 强对照；
-- fixed-K recurrent planner；
-- progressive/random-K recurrent planner；
-- Spatial-JEPA feedforward；
-- Spatial-JEPA recurrent frozen/staged/joint variants。
-
-staged last-block variant 对 representation 参数使用 `0.1x` learning rate，并继续施加 map-information loss，避免只为 planner 调整而破坏已经学到的墙/goal 信息。
-
-所有 planner 都使用相同 train manifest、30000 steps、map batch size、optimizer、LR schedule 和 seed。只有表征来源、planner recurrence 和预注册 loss 开关不同。
-
-### 3. 跑 oracle 和 full-900 evaluation
-
-```bash
+# planner training and development diagnostics
 python spatial_jepa_planning/run_plan.py \
-  --stages anchors,eval_planners,summary
-```
+  --stages train_planners,eval_planners_development
 
-主评估固定：
-
-- `unisize_eval_manifest.jsonl` 的全部 900 个 task；
-- `max_steps=128`；
-- corrected valid moving action selection；
-- learned value/action field 每个 task 计算一次；
-- primary K 在训练前写入 config；
-- K sweep 不用于在 test set 上选择最优模型。
-
-### 4. 只跑一个 variant
-
-```bash
+# 一次性 confirmatory evaluation
 python spatial_jepa_planning/run_plan.py \
-  --stages train_planners,eval_planners \
-  --variants r4_raw_iterative_progressive
+  --stages anchors,eval_representations_confirmatory,eval_planners,summary
 ```
 
-仅做代码 smoke 时可以覆盖 seed：
+如果 development 后修改任何代码或配置，必须提交并从头重训全部 formal
+checkpoints，再运行确认集。不要把修改前后的 checkpoint 混用。
 
-```bash
-python spatial_jepa_planning/run_plan.py \
-  --stages train_planners \
-  --variants r1_raw_action_ce \
-  --seeds 42 \
-  --dry-run
-```
+正式 CLI 会拒绝 dirty worktree、非确定性训练、未锁 spec、覆盖旧文件和非有限
+数值。checkpoint/result 保存 training spec、analysis spec、训练 Git 状态、代码
+fingerprint、manifest/checkpoint/source-representation SHA、完整 runtime、参数量和
+inference MACs；summary 还会拒绝由 dirty worktree 训练出的 checkpoint。
 
-单 seed 不允许作为正式结论。
+## 实验矩阵
 
-## 结果产物
+- R0：raw value-only feedforward；
+- R1：raw all-state tie-aware action CE；
+- R2：raw CE + value + valid + Bellman + action gap；
+- R2D：同 loss 的 full-receptive-field dilated feedforward；
+- R3：fixed K=64 recurrent；
+- R4：progressive recurrent，primary K=128；
+- J0：Spatial-JEPA + dilated feedforward；
+- J1：Spatial-JEPA + frozen recurrent；
+- J2：last block 0.1x LR + map-preservation recurrent；
+- J3：joint JEPA/planner + gradient-conflict audit。
+
+K train 为 `{4,8,16,32,64,128}`，test 另含 256。K curve 只回答 test-time
+compute scaling，不能用于在确认集挑最好 K。报告分别给 planner、representation
+planning path 与总计的参数量/size-25 GMACs，并逐 size 报告 SR。
+
+## 结果与结论边界
+
+结果位于：
 
 ```text
 checkpoints/spatial_jepa_planning/<variant>_seed<seed>.pt
 spatial_jepa_planning_runs/<variant>/seed<seed>/*.json
 spatial_jepa_planning_runs/anchors/*.json
-spatial_jepa_planning_runs/protocol_audit.json
-spatial_jepa_planning_runs/summary.md
-spatial_jepa_planning_runs/summary.json
+spatial_jepa_planning_runs/summary.{md,json}
 ```
 
-每个 checkpoint 保存完整 architecture config、loss weights、manifest hashes、Git commit、seed、source representation、gradient-conflict history 和训练摘要。每个结果 JSON 保存全部 task rows，可进行严格 paired comparison。
+确认集的 128-step oracle ceiling 为 `881/900 = 0.9788888889`。summary 默认
+要求十 seed、全部 variants、三种 action protocol 和 900 个唯一 task rows 全齐，
+并使用 seed×task crossed paired bootstrap 与三假设 Bonferroni simultaneous CI。
 
-## 重要边界
+本实验不能声称超过旧 BC/latent-L2/原始 LeWM，因为它们没有在新确认集上按同一
+evaluator 重跑；也不能推出纹理、背景或跨任务泛化。decoded-map BFS 证明地图
+信息可恢复，不等于 learned planner 自己完成 BFS。
 
-1. `r0_raw_value_only` 是对工程师 P4 FCVP **机制**的受控重实现。原 P4 源码/checkpoint 未进入当前仓库，因此不能声称 byte-identical reproduction。
-2. 当前旧 latent/BC 数字作为 protocol-locked reference anchors；新 variant 之间的因果结论只使用同一 evaluator 重新跑出的逐任务结果。
-3. `oracle_bfs` 与 `oracle_vi` 都读取真实墙体，属于算法上界，不是 learned JEPA 方法。
-4. `decoded_bfs` 的地图来自 Spatial-JEPA decoder，但 BFS 是精确算法；它证明表征够不够，不证明模型学会了规划算法。
-5. 默认任务 fully observable。访问记忆和跨任务泛化不在本轮主矩阵中，等当前 representation/planner 因果分解完成后再加入。
-
-详细实验逻辑见 [DESIGN.md](DESIGN.md)，严格比较规则见 [ALIGNMENT_PROTOCOL.md](ALIGNMENT_PROTOCOL.md)。
+正式合同见 [ALIGNMENT_PROTOCOL.md](ALIGNMENT_PROTOCOL.md)，服务器操作见
+[RUNBOOK.md](RUNBOOK.md)，架构与 loss 见 [DESIGN.md](DESIGN.md)。

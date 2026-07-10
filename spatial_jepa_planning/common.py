@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import math
+import os
+import platform
 import random
 import subprocess
 import sys
@@ -42,13 +45,30 @@ from spatial_jepa_planning.models import (  # noqa: E402
 
 
 def set_seed(seed: int, deterministic: bool = False) -> None:
+    os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
     if deterministic:
-        torch.use_deterministic_algorithms(True, warn_only=True)
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.deterministic = True
+        torch.use_deterministic_algorithms(True, warn_only=False)
+
+
+@dataclass
+class RNGStreams:
+    entries: np.random.Generator
+    map_states: np.random.Generator
+    sequences: np.random.Generator
+    iteration_schedule: np.random.Generator
+
+
+def make_rng_streams(seed: int) -> RNGStreams:
+    """Create independent streams so one ablation cannot shift another's data."""
+    children = np.random.SeedSequence(int(seed)).spawn(4)
+    return RNGStreams(*(np.random.default_rng(child) for child in children))
 
 
 def resolve_device(requested: str) -> torch.device:
@@ -71,6 +91,115 @@ def sha256_file(path: str | Path) -> str:
         for block in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def canonical_layout_hash(wall_mask: np.ndarray) -> str:
+    """Hash maze geometry independently of topology seed or manifest version."""
+    mask = np.ascontiguousarray(wall_mask, dtype=np.uint8)
+    header = f"maze-layout-v1:{mask.shape[0]}:{mask.shape[1]}:".encode("ascii")
+    packed = np.packbits(mask.reshape(-1), bitorder="little").tobytes()
+    return hashlib.sha256(header + packed).hexdigest()
+
+
+def canonical_task_hash(
+    *,
+    maze_size: int,
+    layout_hash: str,
+    start_cell: int,
+    goal_cell: int,
+) -> str:
+    payload = {
+        "goal_cell": int(goal_cell),
+        "layout_hash": str(layout_hash),
+        "maze_size": int(maze_size),
+        "schema": "maze-task-v1",
+        "start_cell": int(start_cell),
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def canonical_json_sha256(data: Any) -> str:
+    encoded = json.dumps(
+        data,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def experiment_code_fingerprint() -> str:
+    roots = (ROOT / "spatial_jepa_planning", ROOT / "hdwm")
+    files = [path for root in roots for path in root.rglob("*.py")]
+    files.append(ROOT / "diagnostics/common.py")
+    digest = hashlib.sha256()
+    for path in sorted(set(files)):
+        relative = path.relative_to(ROOT).as_posix().encode("utf-8")
+        digest.update(len(relative).to_bytes(4, "big"))
+        digest.update(relative)
+        content = path.read_bytes()
+        digest.update(len(content).to_bytes(8, "big"))
+        digest.update(content)
+    return digest.hexdigest()
+
+
+def git_worktree_dirty() -> bool:
+    try:
+        output = subprocess.check_output(
+            [
+                "git",
+                "status",
+                "--porcelain",
+                "--untracked-files=all",
+                "--",
+                "spatial_jepa_planning",
+                "hdwm",
+                "diagnostics/common.py",
+                "data/splits",
+                "pyproject.toml",
+            ],
+            cwd=ROOT,
+            text=True,
+            stderr=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return True
+    return bool(output.strip())
+
+
+def require_clean_worktree(allow_dirty: bool) -> None:
+    if git_worktree_dirty() and not allow_dirty:
+        raise RuntimeError(
+            "formal runs require a clean tracked experiment worktree; commit changes "
+            "or use --allow-dirty-worktree only for labelled diagnostics"
+        )
+
+
+def require_new_output(path: str | Path, overwrite: bool) -> None:
+    if Path(path).exists() and not overwrite:
+        raise FileExistsError(
+            f"refusing to overwrite existing formal output: {path}; pass --overwrite "
+            "only for an explicitly documented rerun"
+        )
+
+
+def runtime_metadata() -> dict[str, Any]:
+    metadata = {
+        "python": platform.python_version(),
+        "platform": platform.platform(),
+        "numpy": np.__version__,
+        "torch": torch.__version__,
+        "cuda_runtime": torch.version.cuda,
+        "cudnn": torch.backends.cudnn.version(),
+    }
+    if torch.cuda.is_available():
+        metadata["cuda_device_name"] = torch.cuda.get_device_name(0)
+        metadata["cuda_device_capability"] = list(torch.cuda.get_device_capability(0))
+    else:
+        metadata["cuda_device_name"] = None
+        metadata["cuda_device_capability"] = None
+    return metadata
 
 
 def git_commit() -> str | None:
@@ -99,13 +228,17 @@ def protocol_metadata(
     *,
     train_manifest: str | Path,
     eval_manifest: str | Path,
+    development_manifest: str | Path | None = None,
     seed: int,
     max_steps: int,
 ) -> dict[str, Any]:
-    return {
+    metadata = {
         "experiment_family": EXPERIMENT_FAMILY,
         "format_version": FORMAT_VERSION,
         "git_commit": git_commit(),
+        "git_dirty": git_worktree_dirty(),
+        "code_fingerprint": experiment_code_fingerprint(),
+        "runtime": runtime_metadata(),
         "train_manifest": str(train_manifest),
         "train_manifest_sha256": sha256_file(train_manifest),
         "eval_manifest": str(eval_manifest),
@@ -115,6 +248,14 @@ def protocol_metadata(
         "action_ids": list(ACTION_IDS),
         "seen_max_size": 21,
     }
+    if development_manifest is not None:
+        metadata.update(
+            {
+                "development_manifest": str(development_manifest),
+                "development_manifest_sha256": sha256_file(development_manifest),
+            }
+        )
+    return metadata
 
 
 def validate_manifest_entry(entry: dict[str, Any], *, check_bfs: bool = True) -> Any:
@@ -350,6 +491,97 @@ def parameter_count(module: torch.nn.Module, trainable_only: bool = False) -> in
     )
 
 
+def estimate_planner_conv_macs(
+    planner: torch.nn.Module,
+    *,
+    input_channels: int,
+    maze_size: int,
+    iterations: int,
+    device: torch.device,
+) -> int:
+    """Count Conv2d multiply-accumulates for one inference field."""
+    total = 0
+
+    def hook(module: torch.nn.Module, _inputs: tuple[Any, ...], output: Any) -> None:
+        nonlocal total
+        if not isinstance(module, torch.nn.Conv2d) or not isinstance(
+            output, torch.Tensor
+        ):
+            return
+        kernel_height, kernel_width = module.kernel_size
+        output_elements = output.numel()
+        operations_per_output = (
+            module.in_channels // module.groups * kernel_height * kernel_width
+        )
+        total += int(output_elements * operations_per_output)
+
+    handles = [
+        module.register_forward_hook(hook)
+        for module in planner.modules()
+        if isinstance(module, torch.nn.Conv2d)
+    ]
+    was_training = planner.training
+    planner.eval()
+    try:
+        dummy = torch.zeros(
+            (1, input_channels, maze_size, maze_size),
+            dtype=torch.float32,
+            device=device,
+        )
+        with torch.no_grad():
+            planner(dummy, iterations=iterations, deep_supervision_every=0)
+    finally:
+        for handle in handles:
+            handle.remove()
+        planner.train(was_training)
+    return total
+
+
+def estimate_representation_planning_conv_macs(
+    representation: SpatialRepresentation,
+    *,
+    maze_size: int,
+    device: torch.device,
+) -> int:
+    """Count Conv2d MACs used to produce the planner's spatial features."""
+    total = 0
+
+    def hook(module: torch.nn.Module, _inputs: tuple[Any, ...], output: Any) -> None:
+        nonlocal total
+        if not isinstance(module, torch.nn.Conv2d) or not isinstance(
+            output, torch.Tensor
+        ):
+            return
+        kernel_height, kernel_width = module.kernel_size
+        operations_per_output = (
+            module.in_channels // module.groups * kernel_height * kernel_width
+        )
+        total += int(output.numel() * operations_per_output)
+
+    planning_modules = (representation.encoder, representation.planning_projector)
+    handles = [
+        module.register_forward_hook(hook)
+        for root in planning_modules
+        for module in root.modules()
+        if isinstance(module, torch.nn.Conv2d)
+    ]
+    was_training = representation.training
+    representation.eval()
+    try:
+        observation = torch.zeros(
+            (1, maze_size, maze_size, representation.config.observation_channels),
+            dtype=torch.float32,
+            device=device,
+        )
+        with torch.no_grad():
+            representation.planning_latent(observation)
+    finally:
+        for handle in handles:
+            handle.remove()
+        representation.train(was_training)
+    return total
+
+
 def save_checkpoint(path: str | Path, payload: dict[str, Any]) -> None:
     output = Path(path)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -363,6 +595,11 @@ def load_representation_checkpoint(
     data = torch.load(path, map_location=device, weights_only=False)
     if data.get("experiment_family") != EXPERIMENT_FAMILY:
         raise ValueError(f"not a {EXPERIMENT_FAMILY} checkpoint: {path}")
+    if int(data.get("format_version", -1)) != FORMAT_VERSION:
+        raise ValueError(
+            f"checkpoint format {data.get('format_version')} != required "
+            f"{FORMAT_VERSION}"
+        )
     if "representation_config" not in data or "representation_state_dict" not in data:
         raise ValueError("checkpoint does not contain a spatial representation")
     config = SpatialRepresentationConfig.from_dict(data["representation_config"])
@@ -378,6 +615,11 @@ def load_planner_checkpoint(
     data = torch.load(path, map_location=device, weights_only=False)
     if data.get("experiment_family") != EXPERIMENT_FAMILY:
         raise ValueError(f"not a {EXPERIMENT_FAMILY} checkpoint: {path}")
+    if int(data.get("format_version", -1)) != FORMAT_VERSION:
+        raise ValueError(
+            f"checkpoint format {data.get('format_version')} != required "
+            f"{FORMAT_VERSION}"
+        )
     config = PlannerConfig.from_dict(data["planner_config"])
     planner = build_planner(config).to(device)
     planner.load_state_dict(data["planner_state_dict"], strict=True)
@@ -439,15 +681,27 @@ def task_id(entry: dict[str, Any]) -> str:
 
 
 def summarize_rows(
-    rows: list[dict[str, Any]], seen_max_size: int = 21
+    rows: list[dict[str, Any]],
+    seen_max_size: int = 21,
+    max_steps: int = 128,
 ) -> dict[str, Any]:
     def summarize(group: list[dict[str, Any]]) -> dict[str, Any]:
         if not group:
             return {"n": 0, "sr": 0.0, "spl": 0.0}
+        eligible = [
+            row
+            for row in group
+            if int(row.get("optimal_length", max_steps + 1)) <= max_steps
+        ]
         return {
             "n": len(group),
             "sr": float(np.mean([float(row["success"]) for row in group])),
             "spl": float(np.mean([float(row["spl"]) for row in group])),
+            "step_cap_eligible_n": len(eligible),
+            "step_cap_ceiling": len(eligible) / len(group),
+            "eligible_sr": float(np.mean([float(row["success"]) for row in eligible]))
+            if eligible
+            else 0.0,
             "loop_or_cycle_rate": float(
                 np.mean([float(row.get("loop_or_cycle", False)) for row in group])
             ),
@@ -462,6 +716,13 @@ def summarize_rows(
         by_size[str(size)] = summarize(
             [row for row in rows if int(row["maze_size"]) == size]
         )
+    path_bins = (
+        ("001-016", 1, 16),
+        ("017-032", 17, 32),
+        ("033-064", 33, 64),
+        ("065-128", 65, 128),
+        ("129+", 129, math.inf),
+    )
     return {
         "overall": summarize(rows),
         "seen": summarize(
@@ -471,6 +732,12 @@ def summarize_rows(
             [row for row in rows if int(row["maze_size"]) > seen_max_size]
         ),
         "by_size": by_size,
+        "by_shortest_path": {
+            label: summarize(
+                [row for row in rows if lower <= int(row["optimal_length"]) <= upper]
+            )
+            for label, lower, upper in path_bins
+        },
     }
 
 
@@ -491,14 +758,24 @@ __all__ = [
     "ACTION_IDS",
     "ACTION_TO_SLOT",
     "ManifestSampler",
+    "RNGStreams",
     "build_map_targets",
+    "canonical_layout_hash",
+    "canonical_json_sha256",
+    "canonical_task_hash",
     "configure_representation_training",
     "count_by_size",
     "create_env",
     "finite_mean",
+    "experiment_code_fingerprint",
+    "estimate_planner_conv_macs",
+    "estimate_representation_planning_conv_macs",
+    "git_commit",
+    "git_worktree_dirty",
     "gradient_cosine",
     "load_planner_checkpoint",
     "load_representation_checkpoint",
+    "make_rng_streams",
     "next_state",
     "observe_state",
     "parameter_count",
@@ -506,6 +783,8 @@ __all__ = [
     "planner_features",
     "protocol_metadata",
     "read_jsonl",
+    "require_clean_worktree",
+    "require_new_output",
     "resolve_device",
     "sample_map_batch",
     "sample_sequence_batch",

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shlex
 import subprocess
@@ -70,10 +71,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--stages",
-        default="audit,anchors,train_representations,eval_representations,train_planners,eval_planners,summary",
+        default="full",
         help=(
             "Comma-separated: audit,smoke,train_representations,eval_representations,"
-            "train_planners,anchors,eval_planners,summary,full"
+            "train_planners,anchors,eval_planners_development,"
+            "eval_representations_confirmatory,eval_planners,summary,full"
         ),
     )
     parser.add_argument(
@@ -113,6 +115,20 @@ def format_path(template: str, *, name: str, seed: int) -> str:
     return template.format(name=name, seed=seed)
 
 
+def format_output_path(
+    template: str,
+    *,
+    name: str,
+    seed: int,
+    action_selection: str = "",
+) -> str:
+    return template.format(
+        name=name,
+        seed=seed,
+        action_selection=action_selection,
+    )
+
+
 def selected_items(
     items: list[dict[str, Any]],
     names: set[str],
@@ -130,6 +146,76 @@ def merged(defaults: dict[str, Any], variant: dict[str, Any]) -> dict[str, Any]:
     return output
 
 
+def sha256_file(path: str | Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def training_spec_sha256(
+    config: dict[str, Any],
+    train_config: dict[str, Any],
+    *,
+    variant_name: str,
+    seed: int,
+    representation_name: str | None,
+) -> str:
+    paths = config["paths"]
+    payload = {
+        "schema": "spatial-jepa-training-spec-v2",
+        "variant_name": variant_name,
+        "seed": int(seed),
+        "train_manifest_sha256": sha256_file(paths["train_manifest"]),
+        "development_manifest_sha256": sha256_file(paths["development_manifest"]),
+        "confirmatory_manifest_sha256": sha256_file(paths["eval_manifest"]),
+        "max_steps": int(config["protocol"]["max_steps"]),
+        "representation_name": representation_name,
+        "train": {
+            **train_config,
+            "deterministic": bool(train_config.get("deterministic", True)),
+        },
+    }
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def analysis_spec_sha256(config: dict[str, Any]) -> str:
+    paths = config["paths"]
+    payload = {
+        "schema": "spatial-jepa-analysis-spec-v2",
+        "seeds": config["seeds"],
+        "confirmatory_manifest_sha256": sha256_file(paths["eval_manifest"]),
+        "protocol": config["protocol"],
+        "evaluation": config["evaluation"],
+        "inference": config["inference"],
+        "planners": [
+            {
+                "name": variant["name"],
+                "enabled": variant.get("enabled", True),
+                "decision_source": variant["decision_source"],
+                "primary_iterations": variant["primary_iterations"],
+                "comparison_baseline": variant.get("comparison_baseline"),
+                "hypothesis": variant.get("hypothesis"),
+            }
+            for variant in config["planners"]
+        ],
+    }
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def build_train_command(
     config: dict[str, Any],
     train_config: dict[str, Any],
@@ -138,16 +224,30 @@ def build_train_command(
     output: str,
     seed: int,
     representation_ckpt: str | None = None,
+    representation_name: str | None = None,
 ) -> list[str]:
     paths = config["paths"]
     protocol = config["protocol"]
     command = [sys.executable, "spatial_jepa_planning/train.py"]
     add_arg(command, "--variant-name", variant_name)
     add_arg(command, "--train-manifest", paths["train_manifest"])
+    add_arg(command, "--development-manifest", paths["development_manifest"])
     add_arg(command, "--eval-manifest", paths["eval_manifest"])
     add_arg(command, "--output", output)
     add_arg(command, "--representation-ckpt", representation_ckpt)
     add_arg(command, "--seed", seed)
+    add_arg(
+        command,
+        "--experiment-spec-sha256",
+        training_spec_sha256(
+            config,
+            train_config,
+            variant_name=variant_name,
+            seed=seed,
+            representation_name=representation_name,
+        ),
+    )
+    add_arg(command, "--analysis-spec-sha256", analysis_spec_sha256(config))
     add_arg(command, "--device", config["device"])
     add_arg(command, "--max-steps", protocol["max_steps"])
     for key, flag in TRAIN_FLAGS.items():
@@ -170,6 +270,8 @@ def build_eval_command(
     representation_ckpt: str | None = None,
     decision_source: str = "policy",
     iterations: str | None = None,
+    split_role: str = "confirmatory",
+    action_selection: str | None = None,
 ) -> list[str]:
     paths = config["paths"]
     protocol = config["protocol"]
@@ -178,12 +280,25 @@ def build_eval_command(
     add_arg(command, "--mode", mode)
     add_arg(command, "--planner-ckpt", planner_ckpt)
     add_arg(command, "--representation-ckpt", representation_ckpt)
+    manifest = (
+        paths["development_manifest"]
+        if split_role == "development"
+        else paths["eval_manifest"]
+    )
     add_arg(command, "--train-manifest", paths["train_manifest"])
-    add_arg(command, "--manifest", paths["eval_manifest"])
+    add_arg(command, "--development-manifest", paths["development_manifest"])
+    add_arg(command, "--confirmatory-manifest", paths["eval_manifest"])
+    add_arg(command, "--manifest", manifest)
+    add_arg(command, "--split-role", split_role)
+    add_arg(command, "--analysis-spec-sha256", analysis_spec_sha256(config))
     add_arg(command, "--output", output)
     add_arg(command, "--iterations", iterations or evaluation["iterations"])
     add_arg(command, "--decision-source", decision_source)
-    add_arg(command, "--action-selection", protocol["action_selection"])
+    add_arg(
+        command,
+        "--action-selection",
+        action_selection or protocol["action_selection"],
+    )
     add_arg(command, "--max-steps", protocol["max_steps"])
     add_arg(command, "--max-per-size", protocol.get("eval_max_per_size", 0))
     add_arg(command, "--limit", protocol.get("eval_limit", 0))
@@ -252,6 +367,7 @@ def stage_commands(
                         variant_name=str(variant["name"]),
                         output=output,
                         seed=seed,
+                        representation_name=None,
                     )
                 )
         return commands
@@ -265,7 +381,7 @@ def stage_commands(
                     seed=seed,
                 )
                 output = format_path(
-                    paths["representation_eval_template"],
+                    paths["representation_development_eval_template"],
                     name=str(variant["name"]),
                     seed=seed,
                 )
@@ -276,6 +392,7 @@ def stage_commands(
                         representation_ckpt=checkpoint,
                         output=output,
                         training_seed=seed,
+                        split_role="development",
                     )
                 )
         return commands
@@ -289,7 +406,9 @@ def stage_commands(
             train_config["input_mode"] = variant["input_mode"]
             for seed in seeds:
                 representation_ckpt = None
+                representation_name = None
                 if variant["input_mode"] == "spatial_jepa":
+                    representation_name = str(variant["representation"])
                     representation_ckpt = format_path(
                         paths["representation_ckpt_template"],
                         name=str(variant["representation"]),
@@ -308,6 +427,7 @@ def stage_commands(
                         output=output,
                         seed=seed,
                         representation_ckpt=representation_ckpt,
+                        representation_name=representation_name,
                     )
                 )
         return commands
@@ -336,8 +456,45 @@ def stage_commands(
                     name=str(variant["name"]),
                     seed=seed,
                 )
+                for action_selection in [
+                    config["protocol"]["action_selection"],
+                    *config["protocol"].get("diagnostic_action_selections", []),
+                ]:
+                    template = (
+                        paths["planner_eval_template"]
+                        if action_selection == config["protocol"]["action_selection"]
+                        else paths["planner_diagnostic_eval_template"]
+                    )
+                    output = format_output_path(
+                        template,
+                        name=str(variant["name"]),
+                        seed=seed,
+                        action_selection=action_selection,
+                    )
+                    commands.append(
+                        build_eval_command(
+                            config,
+                            mode="learned",
+                            planner_ckpt=checkpoint,
+                            output=output,
+                            training_seed=seed,
+                            decision_source=str(variant["decision_source"]),
+                            split_role="confirmatory",
+                            action_selection=action_selection,
+                        )
+                    )
+        return commands
+    if stage == "eval_planners_development":
+        commands = []
+        for variant in planners:
+            for seed in seeds:
+                checkpoint = format_path(
+                    paths["planner_ckpt_template"],
+                    name=str(variant["name"]),
+                    seed=seed,
+                )
                 output = format_path(
-                    paths["planner_eval_template"],
+                    paths["planner_development_eval_template"],
                     name=str(variant["name"]),
                     seed=seed,
                 )
@@ -349,6 +506,33 @@ def stage_commands(
                         output=output,
                         training_seed=seed,
                         decision_source=str(variant["decision_source"]),
+                        split_role="development",
+                        action_selection=config["protocol"]["action_selection"],
+                    )
+                )
+        return commands
+    if stage == "eval_representations_confirmatory":
+        commands = []
+        for variant in representations:
+            for seed in seeds:
+                checkpoint = format_path(
+                    paths["representation_ckpt_template"],
+                    name=str(variant["name"]),
+                    seed=seed,
+                )
+                output = format_path(
+                    paths["representation_eval_template"],
+                    name=str(variant["name"]),
+                    seed=seed,
+                )
+                commands.append(
+                    build_eval_command(
+                        config,
+                        mode="decoded_bfs",
+                        representation_ckpt=checkpoint,
+                        output=output,
+                        training_seed=seed,
+                        split_role="confirmatory",
                     )
                 )
         return commands
@@ -404,6 +588,8 @@ def main() -> None:
         "train_representations",
         "eval_representations",
         "train_planners",
+        "eval_planners_development",
+        "eval_representations_confirmatory",
         "eval_planners",
         "summary",
     ]
