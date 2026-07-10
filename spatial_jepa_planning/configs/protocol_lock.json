@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "train_manifest": {
+    "path": "data/splits/unisize_train_manifest.jsonl",
+    "sha256": "1c477db243752a614d569941da6ca9be5c8fb19099295769c1c4dce9250a05f6",
+    "count": 2800,
+    "counts_by_size": {
+      "9": 400,
+      "11": 400,
+      "13": 400,
+      "15": 400,
+      "17": 400,
+      "19": 400,
+      "21": 400
+    }
+  },
+  "eval_manifest": {
+    "path": "data/splits/unisize_eval_manifest.jsonl",
+    "sha256": "210e2de5aa5d9a688ff2fe60c4e8b85e11fa10b570d0ca3f4e72d8f173dbb8d9",
+    "count": 900,
+    "counts_by_size": {
+      "9": 100,
+      "11": 100,
+      "13": 100,
+      "15": 100,
+      "17": 100,
+      "19": 100,
+      "21": 100,
+      "23": 100,
+      "25": 100
+    }
+  },
+  "evaluation": {
+    "max_steps": 128,
+    "seen_max_size": 21,
+    "action_ids": [1, 2, 3, 4],
+    "primary_action_selection": "corrected",
+    "learned_field_recompute": "once_per_task",
+    "decoded_bfs_action_selection": "predicted_map_only",
+    "full_eval_count": 900,
+    "step_cap_failures": 17,
+    "expected_exact_oracle_sr": 0.9811111111111112
+  },
+  "reference_anchors": [
+    {
+      "name": "latent_l2_cem_seqlen2",
+      "sr": 0.644,
+      "spl": 0.512,
+      "scope": "full900",
+      "source": "results/setb_seqlen_ablation_20260708/latent_l2_all_full900_seqlen2.json",
+      "source_sha256": "344a5810e9bf41149daee1349a6dd1b7150f6f616d4bfe8884db7eff20004909"
+    },
+    {
+      "name": "latent_l2_cem_seqlen4",
+      "sr": 0.629,
+      "spl": 0.445,
+      "scope": "full900",
+      "source": "results/setb_seqlen_ablation_20260708/latent_l2_all_full900_seqlen4.json",
+      "source_sha256": "c54968bd7cab5c10203c8f1bcdb3518eab012c41fc92acd027873ddf1b10de7d"
+    },
+    {
+      "name": "p0_latent_l2_receding_h12",
+      "sr": 0.640,
+      "spl": 0.485,
+      "scope": "full900",
+      "source": "engineering_report_2026-07-10",
+      "source_sha256": null
+    },
+    {
+      "name": "bc_deepcnn",
+      "sr": 0.781,
+      "spl": null,
+      "scope": "full900",
+      "source": "results/FINAL_REPORT.md",
+      "source_sha256": null
+    },
+    {
+      "name": "p4_fcvp",
+      "sr": 0.629,
+      "spl": 0.530,
+      "scope": "full900",
+      "source": "engineering_report_2026-07-10",
+      "source_sha256": null
+    },
+    {
+      "name": "p4_oracle_vi",
+      "sr": 0.957,
+      "spl": 0.957,
+      "scope": "full900",
+      "source": "engineering_report_2026-07-10",
+      "source_sha256": null
+    }
+  ]
+}

@@ -21,7 +21,7 @@ dependencies = [
 dev = ["pre-commit>=3.7", "pytest>=8", "ruff>=0.8"]
 
 [tool.setuptools.packages.find]
-include = ["hdwm*"]
+include = ["hdwm*", "spatial_jepa_planning*"]
 
 [tool.ruff]
 line-length = 88
@@ -34,3 +34,8 @@ select = ["E", "F", "I", "UP", "B"]
 # Standalone scripts that modify sys.path to import from sibling hdwm package.
 # E501 relaxed for research scripts with long Chinese report text.
 "experimental/**/*.py" = ["E402", "E501"]
+"spatial_jepa_planning/audit_protocol.py" = ["E402"]
+"spatial_jepa_planning/evaluate.py" = ["E402"]
+"spatial_jepa_planning/smoke_test.py" = ["E402"]
+"spatial_jepa_planning/summarize.py" = ["E402"]
+"spatial_jepa_planning/train.py" = ["E402"]

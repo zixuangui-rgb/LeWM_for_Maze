@@ -69,3 +69,9 @@ python experiments/run_single.py
 ```bash
 python -m pytest -q
 ```
+
+## Maze 实验包
+
+- [`diagnostics/`](diagnostics/)：在锁定的 topology hold-out 协议下诊断表征、metric、rollout 和导航失败。
+- [`planning_repair/`](planning_repair/)：P0-P2 修复矩阵。
+- [`spatial_jepa_planning/`](spatial_jepa_planning/)：下一阶段 full-resolution Spatial-JEPA 与迭代规划实验，包含 protocol lock、多 seed 配对评估和 oracle 对照。

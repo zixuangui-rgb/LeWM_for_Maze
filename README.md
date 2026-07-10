@@ -71,3 +71,12 @@ python experiments/run_single.py
 ```bash
 python -m pytest -q
 ```
+
+## Maze Experiment Packages
+
+- [`diagnostics/`](diagnostics/) diagnoses representation, metric, rollout, and
+  navigation failures under the locked topology hold-out protocol.
+- [`planning_repair/`](planning_repair/) contains the P0-P2 repair matrix.
+- [`spatial_jepa_planning/`](spatial_jepa_planning/) contains the next-stage
+  full-resolution Spatial-JEPA and iterative-planning experiments, including
+  protocol locks, multi-seed paired evaluation, and oracle controls.

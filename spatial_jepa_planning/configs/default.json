@@ -1,0 +1,262 @@
+{
+  "device": "auto",
+  "seeds": [42, 43, 44],
+  "paths": {
+    "train_manifest": "data/splits/unisize_train_manifest.jsonl",
+    "eval_manifest": "data/splits/unisize_eval_manifest.jsonl",
+    "protocol_lock": "spatial_jepa_planning/configs/protocol_lock.json",
+    "representation_ckpt_template": "checkpoints/spatial_jepa_planning/{name}_seed{seed}.pt",
+    "planner_ckpt_template": "checkpoints/spatial_jepa_planning/{name}_seed{seed}.pt",
+    "representation_eval_template": "spatial_jepa_planning_runs/{name}/seed{seed}/decoded_bfs.json",
+    "planner_eval_template": "spatial_jepa_planning_runs/{name}/seed{seed}/learned.json",
+    "oracle_bfs_output": "spatial_jepa_planning_runs/anchors/oracle_bfs.json",
+    "oracle_vi_output": "spatial_jepa_planning_runs/anchors/oracle_vi.json",
+    "audit_output": "spatial_jepa_planning_runs/protocol_audit.json",
+    "summary_output": "spatial_jepa_planning_runs/summary.md"
+  },
+  "protocol": {
+    "max_steps": 128,
+    "seen_max_size": 21,
+    "action_selection": "corrected",
+    "eval_limit": 0,
+    "eval_max_per_size": 0
+  },
+  "representation_defaults": {
+    "stage": "representation",
+    "input_mode": "raw",
+    "steps": 30000,
+    "map_batch_size": 8,
+    "trajectories_per_map": 2,
+    "seq_len": 4,
+    "lr": 0.001,
+    "encoder_lr_multiplier": 0.1,
+    "weight_decay": 0.0,
+    "scheduler": "cosine",
+    "grad_clip": 1.0,
+    "log_every": 500,
+    "spatial_dim": 64,
+    "planning_dim": 64,
+    "encoder_blocks": 3,
+    "predictor_blocks": 2,
+    "ema_momentum": 0.99,
+    "sigreg_num_proj": 1024,
+    "sigreg_max_tokens": 64,
+    "lambda_prediction": 1.0,
+    "lambda_sigreg": 0.09,
+    "lambda_variance": 0.0,
+    "lambda_covariance": 0.0,
+    "lambda_map_wall": 0.5,
+    "lambda_map_agent": 0.25,
+    "lambda_map_goal": 0.25,
+    "lambda_map_valid": 0.5
+  },
+  "representations": [
+    {
+      "name": "spatial_info_sigreg",
+      "description": "Full-resolution Spatial-JEPA with the existing SIGReg family and planning-information decoders",
+      "enabled": true,
+      "train": {}
+    },
+    {
+      "name": "spatial_info_sigreg_var",
+      "description": "Collapse-control ablation adding token variance and covariance regularization",
+      "enabled": false,
+      "train": {
+        "lambda_variance": 0.1,
+        "lambda_covariance": 0.001
+      }
+    }
+  ],
+  "planner_defaults": {
+    "stage": "planner",
+    "steps": 30000,
+    "map_batch_size": 8,
+    "trajectories_per_map": 2,
+    "seq_len": 4,
+    "lr": 0.001,
+    "encoder_lr_multiplier": 0.1,
+    "weight_decay": 0.0,
+    "scheduler": "cosine",
+    "grad_clip": 1.0,
+    "log_every": 500,
+    "encoder_mode": "frozen",
+    "planner_hidden_dim": 64,
+    "planner_depth": 4,
+    "recall": true,
+    "train_iterations": "8,16,32,64,128",
+    "iteration_schedule": "random",
+    "deep_supervision_every": 0,
+    "distance_scale": 128.0,
+    "lambda_value": 1.0,
+    "lambda_action": 1.0,
+    "lambda_valid": 0.25,
+    "lambda_bellman": 0.5,
+    "lambda_gap": 0.5,
+    "lambda_convergence": 0.0,
+    "gap_margin": 1.0,
+    "lambda_joint_representation": 1.0,
+    "lambda_planner_map": 0.0,
+    "gradient_audit_every": 500
+  },
+  "planners": [
+    {
+      "name": "r0_raw_value_only",
+      "description": "Raw-grid feedforward value-regression control; reimplements the tested FCVP mechanism, not its unavailable checkpoint",
+      "enabled": true,
+      "input_mode": "raw",
+      "decision_source": "value",
+      "primary_iterations": 4,
+      "comparison_baseline": null,
+      "train": {
+        "planner_type": "feedforward",
+        "lambda_action": 0.0,
+        "lambda_valid": 0.0,
+        "lambda_bellman": 0.0,
+        "lambda_gap": 0.0
+      }
+    },
+    {
+      "name": "r1_raw_action_ce",
+      "description": "All-state tie-aware action-field feedforward control",
+      "enabled": true,
+      "input_mode": "raw",
+      "decision_source": "policy",
+      "primary_iterations": 4,
+      "comparison_baseline": "r0_raw_value_only",
+      "train": {
+        "planner_type": "feedforward",
+        "lambda_value": 0.0,
+        "lambda_action": 1.0,
+        "lambda_valid": 0.25,
+        "lambda_bellman": 0.0,
+        "lambda_gap": 0.0
+      }
+    },
+    {
+      "name": "r2_raw_bellman_gap",
+      "description": "Feedforward control with the same local planning losses as the recurrent model",
+      "enabled": true,
+      "input_mode": "raw",
+      "decision_source": "policy",
+      "primary_iterations": 4,
+      "comparison_baseline": "r1_raw_action_ce",
+      "train": {
+        "planner_type": "feedforward"
+      }
+    },
+    {
+      "name": "r2d_raw_dilated_bellman_gap",
+      "description": "Non-recurrent full-receptive-field control with dilation 1/2/4/8 and the same planning losses",
+      "enabled": true,
+      "input_mode": "raw",
+      "decision_source": "policy",
+      "primary_iterations": 4,
+      "comparison_baseline": "r2_raw_bellman_gap",
+      "train": {
+        "planner_type": "feedforward_dilated"
+      }
+    },
+    {
+      "name": "r3_raw_iterative_fixed",
+      "description": "Weight-shared gated recall planner with fixed K=64",
+      "enabled": true,
+      "input_mode": "raw",
+      "decision_source": "policy",
+      "primary_iterations": 64,
+      "comparison_baseline": "r2d_raw_dilated_bellman_gap",
+      "train": {
+        "planner_type": "iterative",
+        "train_iterations": "64",
+        "iteration_schedule": "fixed"
+      }
+    },
+    {
+      "name": "r4_raw_iterative_progressive",
+      "description": "Main raw-grid algorithmic-reasoning model with random progressive K",
+      "enabled": true,
+      "input_mode": "raw",
+      "decision_source": "policy",
+      "primary_iterations": 128,
+      "comparison_baseline": "r2d_raw_dilated_bellman_gap",
+      "train": {
+        "planner_type": "iterative",
+        "iteration_schedule": "progressive",
+        "deep_supervision_every": 16
+      }
+    },
+    {
+      "name": "j0_spatial_feedforward",
+      "description": "Spatial-JEPA plus feedforward planning control",
+      "enabled": true,
+      "input_mode": "spatial_jepa",
+      "representation": "spatial_info_sigreg",
+      "decision_source": "policy",
+      "primary_iterations": 4,
+      "comparison_baseline": "r2d_raw_dilated_bellman_gap",
+      "train": {
+        "planner_type": "feedforward_dilated",
+        "encoder_mode": "frozen"
+      }
+    },
+    {
+      "name": "j1_spatial_iterative_frozen",
+      "description": "Spatial-JEPA plus iterative planner with a frozen encoder",
+      "enabled": true,
+      "input_mode": "spatial_jepa",
+      "representation": "spatial_info_sigreg",
+      "decision_source": "policy",
+      "primary_iterations": 128,
+      "comparison_baseline": "r4_raw_iterative_progressive",
+      "train": {
+        "planner_type": "iterative",
+        "encoder_mode": "frozen",
+        "iteration_schedule": "progressive",
+        "deep_supervision_every": 16
+      }
+    },
+    {
+      "name": "j2_spatial_iterative_lastblock",
+      "description": "Staged planner training with only the last spatial block and planning branch unfrozen",
+      "enabled": true,
+      "input_mode": "spatial_jepa",
+      "representation": "spatial_info_sigreg",
+      "decision_source": "policy",
+      "primary_iterations": 128,
+      "comparison_baseline": "j1_spatial_iterative_frozen",
+      "train": {
+        "planner_type": "iterative",
+        "encoder_mode": "last_block",
+        "lambda_planner_map": 1.0,
+        "iteration_schedule": "progressive",
+        "deep_supervision_every": 16
+      }
+    },
+    {
+      "name": "j3_spatial_iterative_joint",
+      "description": "Joint JEPA/planner finetuning with branched projectors and gradient-cosine audit",
+      "enabled": true,
+      "input_mode": "spatial_jepa",
+      "representation": "spatial_info_sigreg",
+      "decision_source": "policy",
+      "primary_iterations": 128,
+      "comparison_baseline": "j2_spatial_iterative_lastblock",
+      "train": {
+        "stage": "joint",
+        "planner_type": "iterative",
+        "encoder_mode": "last_block",
+        "iteration_schedule": "progressive",
+        "deep_supervision_every": 16
+      }
+    }
+  ],
+  "evaluation": {
+    "seed": 42,
+    "iterations": "8,16,32,64,128,256",
+    "oracle_vi_iterations": "32,64,128,256",
+    "progress_every": 100,
+    "field_states_per_maze": 24,
+    "field_pairs_per_maze": 128,
+    "decoded_action_selection": "predicted",
+    "bootstrap_samples": 10000
+  }
+}

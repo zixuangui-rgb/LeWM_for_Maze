@@ -11,6 +11,7 @@ checkpoints/
 logs/
 diagnostics_runs/
 planning_repair_runs/
+spatial_jepa_planning_runs/
 archive/
 results/**/*.pt
 results/**/*.log
