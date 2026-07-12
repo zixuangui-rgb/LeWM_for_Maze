@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "protocol_id": "maze-jepa-paper-closure-v1",
+  "study_role": "post_confirmatory_fixed_baseline_addendum",
+  "analysis_spec_sha256": "43de02d2b7546136babd52cee199076181d5f755653679df39b64c5cf3890013",
+  "train_manifest": {
+    "path": "data/splits/unisize_train_manifest.jsonl",
+    "sha256": "1c477db243752a614d569941da6ca9be5c8fb19099295769c1c4dce9250a05f6",
+    "count": 2800,
+    "counts_by_size": {"9": 400, "11": 400, "13": 400, "15": 400, "17": 400, "19": 400, "21": 400}
+  },
+  "development_manifest": {
+    "path": "data/splits/unisize_eval_manifest.jsonl",
+    "sha256": "210e2de5aa5d9a688ff2fe60c4e8b85e11fa10b570d0ca3f4e72d8f173dbb8d9",
+    "count": 900,
+    "counts_by_size": {"9": 100, "11": 100, "13": 100, "15": 100, "17": 100, "19": 100, "21": 100, "23": 100, "25": 100}
+  },
+  "confirmatory_manifest": {
+    "path": "data/splits/spatial_jepa_confirm_eval_manifest.jsonl",
+    "sha256": "ca710c6fb5b39405052523e92536fba7f61303bb190dba4f749e11ee78a5e99b",
+    "count": 900,
+    "counts_by_size": {"9": 100, "11": 100, "13": 100, "15": 100, "17": 100, "19": 100, "21": 100, "23": 100, "25": 100},
+    "step_cap_failures": 19,
+    "expected_exact_oracle_sr": 0.9788888888888889
+  },
+  "evaluation": {
+    "max_steps": 128,
+    "seen_max_size": 21,
+    "evaluation_seed": 42,
+    "action_ids": [1, 2, 3, 4],
+    "primary_action_selection": "unmasked",
+    "diagnostic_action_selections": ["corrected"]
+  },
+  "source_spatial_experiment": {
+    "experiment_family": "spatial_jepa_planning",
+    "format_version": 2,
+    "git_commit": "0eca77209429d86c71768195ba654d560cf35633",
+    "code_fingerprint": "95fc86a5551d74694480889c3d7ffe54fb998ed5f37d479b37d8c7e385144c5f",
+    "required_methods": {
+      "r4_raw_iterative_progressive": 128,
+      "j1_spatial_iterative_frozen": 128
+    }
+  },
+  "legacy_development_anchors": {
+    "bc_deepcnn_sr": 0.781,
+    "lewm_l2_cem_seqlen2_sr": 0.644,
+    "lewm_l2_cem_seqlen2_spl": 0.512
+  }
+}

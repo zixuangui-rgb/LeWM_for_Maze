@@ -1,0 +1,151 @@
+{
+  "schema_version": 1,
+  "protocol_id": "maze-jepa-paper-closure-v1",
+  "study_role": "post_confirmatory_fixed_baseline_addendum",
+  "device": "auto",
+  "seeds": [42, 43, 44, 45, 46, 47, 48, 49, 50, 51],
+  "paths": {
+    "protocol_lock": "final_closure/configs/protocol_lock.json",
+    "train_manifest": "data/splits/unisize_train_manifest.jsonl",
+    "development_manifest": "data/splits/unisize_eval_manifest.jsonl",
+    "confirmatory_manifest": "data/splits/spatial_jepa_confirm_eval_manifest.jsonl",
+    "checkpoint_template": "checkpoints/final_closure/{name}_seed{seed}.pt",
+    "development_result_template": "final_closure_runs/{name}/seed{seed}/development_{action_selection}.json",
+    "confirmatory_result_template": "final_closure_runs/{name}/seed{seed}/confirmatory_{action_selection}.json",
+    "spatial_result_template": "spatial_jepa_planning_runs/{name}/seed{seed}/confirmatory_unmasked.json",
+    "audit_output": "final_closure_runs/protocol_audit.json",
+    "summary_json": "final_closure_runs/summary.json",
+    "paper_report": "final_closure_runs/PAPER_RESULTS.md",
+    "closure_gate": "final_closure_runs/CLOSURE_COMPLETE.json",
+    "table_dir": "final_closure_runs/tables",
+    "figure_dir": "final_closure_runs/figures"
+  },
+  "protocol": {
+    "max_steps": 128,
+    "seen_max_size": 21,
+    "evaluation_seed": 42,
+    "run_order_seed": 20260712,
+    "full_eval_count": 900,
+    "action_ids": [1, 2, 3, 4],
+    "primary_action_selection": "unmasked",
+    "diagnostic_action_selections": ["corrected"],
+    "allow_confirmatory_model_selection": false,
+    "allow_score_triggered_reruns": false
+  },
+  "baselines": [
+    {
+      "name": "bc_deepcnn_fixed",
+      "kind": "bc",
+      "description": "Protocol-aligned directional DeepCNN behavioral cloning baseline",
+      "train": {
+        "epochs": 200,
+        "batch_size": 128,
+        "architecture": "historical_deepcnn_res2_down_res1_pool_mlp512_256",
+        "target_population": "all_non_goal_free_states",
+        "epoch_order": "seeded_global_permutation",
+        "epoch_permutation_namespace": 1701,
+        "learning_rate": 0.001,
+        "weight_decay": 0.0001,
+        "scheduler": "cosine_epoch",
+        "grad_clip": 1.0,
+        "dropout": 0.3,
+        "train_canvas_size": 21,
+        "observation_cache": "uint8_cpu_full_state",
+        "class_count": 4,
+        "checkpoint_selection": "final_epoch",
+        "log_every_epochs": 10
+      }
+    },
+    {
+      "name": "lewm_l2_cem_seqlen2",
+      "kind": "lewm_l2_cem",
+      "description": "Historical best vector LeWM with latent-L2 receding CEM",
+      "train": {
+        "steps": 30000,
+        "batch_size": 256,
+        "sequence_length": 2,
+        "architecture": "unisize256_sizecond_cnn_projector_transformer",
+        "entry_schedule": "historical_step_mod_manifest_length_starting_at_one",
+        "environment_seed_stream": "numpy_default_rng_training_seed",
+        "learning_rate": 0.001,
+        "weight_decay": 0.0,
+        "grad_clip": 1.0,
+        "latent_dim": 256,
+        "max_size_embedding": 31,
+        "cnn_channels": [64, 128, 256],
+        "latent_batch_norm": true,
+        "embedding_stage": "post_bn",
+        "sigreg_stage": "post_bn",
+        "predictor_heads": 16,
+        "sigreg_knots": 17,
+        "sigreg_num_proj": 1024,
+        "lambda_prediction": 1.0,
+        "lambda_sigreg": 0.09,
+        "lambda_abs_position": 0.1,
+        "lambda_relative_position": 1.0,
+        "lambda_goal_position": 0.5,
+        "checkpoint_selection": "final_step",
+        "log_every_steps": 500
+      },
+      "planner": {
+        "history_size": 3,
+        "context_action_initialization": "repeat_action_id_4",
+        "horizon": 12,
+        "num_candidates": 64,
+        "num_elites": 8,
+        "cem_iters": 1,
+        "momentum": 0.1,
+        "replan_every_step": true,
+        "allowed_actions": [1, 2, 3, 4],
+        "cem_seed_schedule": "historical_eval_seed_task_step",
+        "score": "squared_latent_l2"
+      }
+    }
+  ],
+  "spatial_methods": [
+    {
+      "name": "r4_raw_iterative_progressive",
+      "label": "R4 Raw Iterative",
+      "primary_iterations": 128
+    },
+    {
+      "name": "j1_spatial_iterative_frozen",
+      "label": "J1 Frozen Spatial-JEPA",
+      "primary_iterations": 128
+    }
+  ],
+  "analysis": {
+    "bootstrap_samples": 20000,
+    "bootstrap_seed": 20260712,
+    "familywise_alpha": 0.05,
+    "multiplicity_method": "bonferroni_simultaneous_percentile_ci",
+    "primary_metric": "success",
+    "secondary_metrics": ["spl"],
+    "cross_method_seed_resampling": "independent",
+    "cross_method_task_resampling": "paired_by_task_hash_within_maze_size",
+    "action_protocol_seed_resampling": "paired_same_checkpoint",
+    "comparisons": [
+      {
+        "candidate": "j1_spatial_iterative_frozen",
+        "baseline": "bc_deepcnn_fixed",
+        "label": "Spatial-JEPA minus BC"
+      },
+      {
+        "candidate": "j1_spatial_iterative_frozen",
+        "baseline": "lewm_l2_cem_seqlen2",
+        "label": "Spatial-JEPA minus vector LeWM"
+      },
+      {
+        "candidate": "r4_raw_iterative_progressive",
+        "baseline": "bc_deepcnn_fixed",
+        "label": "Raw iterative minus BC"
+      },
+      {
+        "candidate": "r4_raw_iterative_progressive",
+        "baseline": "lewm_l2_cem_seqlen2",
+        "label": "Raw iterative minus vector LeWM"
+      }
+    ],
+    "claim_status": "secondary_fixed_addendum_not_new_confirmatory_hypotheses"
+  }
+}
