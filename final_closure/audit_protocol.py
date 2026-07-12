@@ -14,6 +14,7 @@ import numpy as np
 from final_closure import PROTOCOL_ID
 from final_closure.common import (
     ACTION_IDS,
+    RERUN_REASONS,
     analysis_spec_sha256,
     atomic_json_dump,
     count_by_size,
@@ -22,6 +23,8 @@ from final_closure.common import (
     git_commit,
     git_worktree_dirty,
     load_config,
+    load_json,
+    prepare_rerun,
     read_jsonl,
     require_clean_worktree,
     require_new_output,
@@ -33,6 +36,7 @@ from final_closure.common import (
 from spatial_jepa_planning.common import (
     experiment_code_fingerprint as spatial_code_fingerprint,
 )
+from spatial_jepa_planning.run_plan import analysis_spec_sha256 as spatial_analysis_spec
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -44,6 +48,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip-entry-regeneration", action="store_true")
     parser.add_argument("--allow-dirty-worktree", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--rerun-reason", choices=RERUN_REASONS, default="")
     return parser.parse_args()
 
 
@@ -313,10 +318,36 @@ def audit_source(lock: dict[str, Any]) -> dict[str, Any]:
         },
         "source spatial result matrix",
     )
+    assert_equal(
+        source["evaluation_iterations"],
+        [4, 8, 16, 32, 64, 128, 256],
+        "source spatial evaluation iterations",
+    )
+    source_config_path = Path(source["config_path"])
+    source_lock_path = Path(source["protocol_lock_path"])
+    assert_equal(
+        sha256_file(source_config_path),
+        source["config_sha256"],
+        "source spatial config hash",
+    )
+    assert_equal(
+        sha256_file(source_lock_path),
+        source["protocol_lock_sha256"],
+        "source spatial protocol-lock hash",
+    )
+    assert_equal(
+        spatial_analysis_spec(load_json(source_config_path)),
+        source["analysis_spec_sha256"],
+        "source spatial analysis spec",
+    )
     return {
         "git_commit": commit,
         "code_fingerprint": current_fingerprint,
         "required_methods": source["required_methods"],
+        "evaluation_iterations": source["evaluation_iterations"],
+        "config_sha256": source["config_sha256"],
+        "protocol_lock_sha256": source["protocol_lock_sha256"],
+        "analysis_spec_sha256": source["analysis_spec_sha256"],
     }
 
 
@@ -326,6 +357,7 @@ def main() -> None:
     require_study_open(config)
     require_clean_worktree(args.allow_dirty_worktree)
     output = args.output or config["paths"]["audit_output"]
+    rerun = prepare_rerun([output], overwrite=args.overwrite, reason=args.rerun_reason)
     require_new_output(output, args.overwrite)
     report = {
         "protocol_id": PROTOCOL_ID,
@@ -336,6 +368,7 @@ def main() -> None:
             "git_dirty": git_worktree_dirty(),
             "code_fingerprint": experiment_code_fingerprint(),
             "runtime": environment_summary(),
+            "rerun": rerun,
         },
         "config": audit_config(config),
         "manifests": audit_manifests(

@@ -9,9 +9,12 @@ from typing import Any
 
 import numpy as np
 
+from final_closure import FIGURE_FILENAMES
 from final_closure.common import (
+    RERUN_REASONS,
     load_config,
     load_json,
+    prepare_rerun,
     require_new_output,
     require_study_open,
 )
@@ -194,13 +197,17 @@ def create_figures(summary: dict[str, Any], output_dir: Path) -> list[Path]:
     axis.legend(frameon=False)
     _save(fig, compute_path)
     plt.close("all")
-    return [primary_path, size_path, path_path, k_path, compute_path]
+    outputs = [primary_path, size_path, path_path, k_path, compute_path]
+    if tuple(path.name for path in outputs) != FIGURE_FILENAMES:
+        raise RuntimeError("figure artifact order differs from the closure schema")
+    return outputs
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default="final_closure/configs/default.json")
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--rerun-reason", choices=RERUN_REASONS, default="")
     return parser.parse_args()
 
 
@@ -209,15 +216,14 @@ def main() -> None:
     config, _ = load_config(args.config)
     require_study_open(config)
     output_dir = Path(config["paths"]["figure_dir"])
-    expected = (
-        "primary_results.png",
-        "generalization_by_size.png",
-        "generalization_by_path_length.png",
-        "spatial_iteration_curve.png",
-        "spatial_compute_curve.png",
+    expected = [output_dir / name for name in FIGURE_FILENAMES]
+    prepare_rerun(
+        expected,
+        overwrite=args.overwrite,
+        reason=args.rerun_reason,
     )
-    for name in expected:
-        require_new_output(output_dir / name, args.overwrite)
+    for path in expected:
+        require_new_output(path, args.overwrite)
     summary = load_json(config["paths"]["summary_json"])
     outputs = create_figures(summary, output_dir)
     print("generated figures:")

@@ -17,6 +17,7 @@ import torch.nn.functional as F
 from final_closure.common import (
     ACTION_IDS,
     ACTION_TO_SLOT,
+    RERUN_REASONS,
     atomic_json_dump,
     baseline_config,
     bfs_distances_from,
@@ -27,6 +28,7 @@ from final_closure.common import (
     next_state,
     observe_state,
     pad_bc_observation,
+    prepare_rerun,
     protocol_metadata,
     read_jsonl,
     require_clean_worktree,
@@ -69,6 +71,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--progress-every", type=int, default=100)
     parser.add_argument("--allow-dirty-worktree", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--rerun-reason", choices=RERUN_REASONS, default="")
     return parser.parse_args()
 
 
@@ -413,6 +416,9 @@ def main() -> None:
     if not args.diagnostic:
         require_study_open(config)
     require_clean_worktree(args.allow_dirty_worktree or args.diagnostic)
+    rerun = prepare_rerun(
+        [args.output], overwrite=args.overwrite, reason=args.rerun_reason
+    )
     require_new_output(args.output, args.overwrite)
     role_key = f"{args.split_role}_manifest"
     manifest = config["paths"][role_key]
@@ -503,6 +509,7 @@ def main() -> None:
             "action_selection": args.action_selection,
             "oracle_action_assistance": args.action_selection == "corrected",
             "formal_evaluation": formal,
+            "rerun": rerun,
             "comparable_to_primary": bool(
                 formal
                 and args.split_role == "confirmatory"

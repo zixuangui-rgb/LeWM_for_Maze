@@ -42,12 +42,14 @@ The new package does not retrain or rewrite R4/J1. It consumes row-level files p
 
 - experiment family and format version;
 - source Git commit and code fingerprint;
+- source config/lock hashes and exact source analysis specification;
 - clean training and evaluation flags;
 - checkpoint path and SHA256;
-- analysis-spec consistency;
+- exact variant-and-seed training spec plus checkpoint-internal variant identity;
 - seed label;
 - K=128 availability;
+- the exact K=4/8/16/32/64/128/256 curve for every seed;
 - unmasked confirmatory status;
-- all 900 unique task hashes.
+- all 900 unique task hashes and manifest fields at every K.
 
 This permits a scientifically valid cross-stage table even though the baselines are trained on a later commit.

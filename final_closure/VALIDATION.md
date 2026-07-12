@@ -5,11 +5,11 @@ This record describes code validation performed before the package was committed
 ## Static and unit checks
 
 - `ruff check final_closure tests/test_final_closure.py`: passed.
-- `pytest -q`: 40 passed, including the pre-existing Spatial-JEPA suite.
+- `pytest -q`: 49 passed, including the pre-existing Spatial-JEPA suite.
 - Python bytecode compilation and both JSON configuration parses: passed.
 - `git diff --check`: passed.
 
-The tests cover action order, exact observation rendering and historical padding, BFS target correctness, complete epoch coverage, uint8 cache equivalence, model shapes on size 21 and 25, LeWM configuration round-trip, unmasked/corrected action behavior, wall-collision accounting, seed schedules, paired/independent/stratified bootstrap behavior, duplicate tasks, impossible paths, stale summaries, checkpoint hashes, deterministic run order, source-code fingerprints, the independent analysis-spec lock, mandatory formal audit, and post-closure immutability.
+The tests cover action order, exact observation rendering and historical padding, BFS target correctness, complete epoch coverage, uint8 cache equivalence, model shapes on size 21 and 25, LeWM configuration round-trip, unmasked/corrected action behavior, assistance/trajectory counterfactual consistency, wall-collision accounting, seed schedules, paired/independent/stratified bootstrap behavior, duplicate tasks, impossible paths, stale navigation and compute summaries, checkpoint hashes, imported checkpoint variant/training identity, exact cross-seed K curves, deterministic run order, source-code fingerprints, the independent analysis-spec lock, mandatory formal audit, constrained objective replacement, artifact-schema completeness, post-closure immutability, and independent gate tamper detection.
 
 ## Full protocol audit
 
@@ -51,17 +51,17 @@ A full synthetic result tree was generated with the production shape:
 - 20 new checkpoints;
 - 80 new baseline result files;
 - 20 imported Spatial-JEPA result files plus their 20 checkpoints;
-- 141 hashed source files in the closure gate, including the mandatory formal audit.
+- 148 exact hashed source files in the closure gate: final config and protocol lock, source Spatial-JEPA config and protocol lock, three manifests, mandatory formal audit, 20 new checkpoints, 80 new baseline results, 20 imported Spatial-JEPA results, and their 20 checkpoints.
 
 The production summarizer successfully validated the tree, executed 20,000-draw stratified crossed bootstraps, and generated:
 
-- 5 CSV tables;
+- 9 CSV tables, including per-seed, per-size, assistance, and development-alignment records;
 - 5 publication PNG figures;
 - a populated paper report;
 - `summary.json`;
 - a score-independent `CLOSURE_COMPLETE.json`.
 
-Negative injection was also exercised. The summary correctly rejected a synthetic "successful" trajectory whose path length exceeded the 128-step cap. After correcting the impossible row, the same complete tree closed successfully.
+Negative injection was also exercised. The code rejected an impossible successful path beyond the 128-step cap, a stale compute total, an inconsistent loop flag, a non-finite auxiliary metric, a missing per-seed K value, a nonformal audit, a broad output-replacement request, and a post-closure artifact modification. After correcting the synthetic rows, the same complete tree closed and independently re-verified successfully.
 
 ## Scope
 

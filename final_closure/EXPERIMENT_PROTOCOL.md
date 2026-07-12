@@ -31,6 +31,8 @@ The 128-step cap yields an exact maximum SR of 881/900 = 0.978888..., because 19
 
 `R4 raw iterative` and `J1 frozen Spatial-JEPA` are imported from commit `0eca77209429d86c71768195ba654d560cf35633`. Their primary K is 128 and their action selection is unmasked. Row-level outputs, checkpoint hashes, code fingerprints, training seeds, and task IDs must all validate before they enter a table.
 
+Their complete descriptive K curve is also locked to K = 4, 8, 16, 32, 64, 128, and 256. Every seed must contain exactly this set. Every K is independently recomputed and matched to all 900 manifest rows; missing K values cannot be silently removed by intersecting seed outputs.
+
 J1 is selected because it was the original fixed primary Spatial-JEPA mechanism: frozen representation plus iterative planner. It avoids choosing J2 or J3 after looking at their confirmatory means.
 
 ### 3.2 BC DeepCNN
@@ -104,11 +106,17 @@ The four SR contrasts are:
 
 These remain secondary even when a simultaneous interval excludes zero.
 
+No prospective power calculation is claimed for this post-confirmatory addendum. Ten training runs preserve the replication level of the preceding confirmatory study; the resulting effect sizes and crossed-bootstrap intervals communicate achieved precision. An interval crossing zero is not interpreted as equivalence.
+
 ## 6. Reproducibility and provenance
 
 Formal training and evaluation require a clean worktree. Each checkpoint records the commit, scoped code fingerprint, runtime, device, seed, three manifest hashes, analysis-spec hash, training-spec hash, model configuration, and parameter count. Each result repeats training provenance and includes checkpoint SHA256 plus all 900 task rows.
 
 The complete executable analysis specification has an independently stored SHA256 in `protocol_lock.json`. Loading a changed scientific setting under the same protocol ID fails before training. Final summarization additionally requires a clean, same-commit formal audit that regenerated all 4,600 manifest entries; the audit itself is hashed into the closure gate.
+
+Stored navigation and compute summaries are never accepted on trust. The final summarizer reconstructs navigation, decision counts, wall-clock totals, controller-call counts, CEM transition counts, assistance counts, and every task/manifest field from row-level data. Imported R4/J1 results must match the locked source config, source protocol lock, source analysis spec, variant-and-seed training spec, and checkpoint-internal identity. The closure gate directly hashes both configs and locks, all three manifests, audit, checkpoints, source results, generated tables, figures, report, and summary.
+
+For the same checkpoint and task, `corrected` may differ from `unmasked` only if at least one assisted action is recorded. A changed trajectory with zero assistance is treated as a data-integrity failure, not an effect estimate.
 
 Training and evaluation of a new baseline must use the same commit and code fingerprint. Imported spatial results are validated against their frozen source commit instead of the new baseline commit.
 
@@ -125,5 +133,8 @@ Only these objective failures permit rerun:
 - manifest, checkpoint, commit, or code-fingerprint mismatch;
 - NaN or infinite model output.
 
+Replacing an existing formal file additionally requires one allowed reason. The replacement records the SHA256 of every superseded output. The orchestration command permits replacement for only one explicit stage, baseline, seed, and action protocol at a time; a missing atomic output is simply completed without an overwrite flag.
+
 Low SR, high variance, or disagreement with the expected narrative must be reported as results and cannot reopen tuning on the confirmatory set.
 After the closure gate is created, formal training, evaluation, re-summarization, and figure regeneration are rejected. A future study must receive a new protocol ID and untouched holdout.
+`python -m final_closure.verify_closure` is the read-only exception: it re-hashes and validates the completed tree without changing it.

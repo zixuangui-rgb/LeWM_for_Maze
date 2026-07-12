@@ -16,10 +16,12 @@ import torch.nn.functional as F
 
 from final_closure import EXPERIMENT_FAMILY, FORMAT_VERSION
 from final_closure.common import (
+    RERUN_REASONS,
     analysis_spec_sha256,
     atomic_torch_save,
     baseline_config,
     load_config,
+    prepare_rerun,
     protocol_metadata,
     read_jsonl,
     require_clean_worktree,
@@ -60,6 +62,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--diagnostic-sigreg-num-proj", type=int, default=0)
     parser.add_argument("--allow-dirty-worktree", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--rerun-reason", choices=RERUN_REASONS, default="")
     return parser.parse_args()
 
 
@@ -372,6 +375,9 @@ def main() -> None:
     if not args.diagnostic:
         require_study_open(config)
     require_clean_worktree(args.allow_dirty_worktree or args.diagnostic)
+    rerun = prepare_rerun(
+        [args.output], overwrite=args.overwrite, reason=args.rerun_reason
+    )
     require_new_output(args.output, args.overwrite)
     verify_manifest_files(config, lock)
     set_seed(args.seed, deterministic=True)
@@ -426,6 +432,7 @@ def main() -> None:
         "baseline_kind": baseline["kind"],
         "training_seed": int(args.seed),
         "formal_run": not args.diagnostic,
+        "rerun": rerun,
         "analysis_spec_sha256": analysis_spec_sha256(config, lock),
         "training_spec_sha256": training_spec_sha256(
             config, lock, name=baseline["name"], seed=args.seed

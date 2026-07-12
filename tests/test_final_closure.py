@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -8,14 +9,19 @@ import pytest
 import torch
 from torch import nn
 
+from final_closure import FIGURE_FILENAMES, TABLE_FILENAMES
 from final_closure.audit_protocol import audit_config
 from final_closure.common import (
     ACTION_IDS,
+    RERUN_REASONS,
     analysis_spec_sha256,
     corrected_actions,
     crossed_paired_bootstrap,
+    experiment_code_fingerprint,
+    git_commit,
     load_config,
     next_state,
+    prepare_rerun,
     read_jsonl,
     require_study_open,
     sha256_file,
@@ -36,13 +42,20 @@ from final_closure.models import (
     deserialize_lewm_config,
     serialize_lewm_config,
 )
+from final_closure.run_plan import main as run_plan_main
 from final_closure.run_plan import randomized_jobs
 from final_closure.summarize import (
     checkpoint_hash_is_valid,
     interval_status,
+    source_spatial_variant,
+    spatial_k_curves,
+    validate_action_protocol_consistency,
+    validate_baseline_compute,
     validate_protocol_audit,
     validate_records_against_manifest,
+    validate_spatial_checkpoint,
 )
+from final_closure.verify_closure import verify_closure_gate
 from spatial_jepa_planning.common import (
     bfs_distances_from,
     observe_state,
@@ -51,6 +64,7 @@ from spatial_jepa_planning.common import (
 from spatial_jepa_planning.common import (
     experiment_code_fingerprint as spatial_code_fingerprint,
 )
+from spatial_jepa_planning.run_plan import training_spec_sha256 as spatial_training_spec
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -102,6 +116,54 @@ def test_summary_rejects_a_nonformal_protocol_audit() -> None:
     }
     with pytest.raises(ValueError, match="formal audit flag"):
         validate_protocol_audit(audit, config=config, lock=lock)
+
+
+def test_rerun_requires_reason_and_preserves_superseded_hash(tmp_path: Path) -> None:
+    output = tmp_path / "result.json"
+    output.write_text("old", encoding="utf-8")
+    with pytest.raises(ValueError, match="allowed rerun reason"):
+        prepare_rerun([output], overwrite=True, reason="")
+    record = prepare_rerun(
+        [output],
+        overwrite=True,
+        reason="manifest_checkpoint_or_code_hash_mismatch",
+    )
+    assert record is not None
+    assert record["superseded_outputs"][str(output)] == sha256_file(output)
+    with pytest.raises(ValueError, match="no selected output exists"):
+        prepare_rerun(
+            [tmp_path / "missing.json"],
+            overwrite=True,
+            reason="interrupted_execution",
+        )
+
+
+def test_run_plan_rejects_broad_score_replacement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "run_plan",
+            "--stages",
+            "full",
+            "--rerun-execution-failures",
+            "--rerun-reason",
+            "non_finite_output",
+            "--dry-run",
+        ],
+    )
+    with pytest.raises(ValueError, match="exactly one explicit stage"):
+        run_plan_main()
+
+
+def test_artifact_schema_is_complete() -> None:
+    assert len(TABLE_FILENAMES) == 9
+    assert "per_seed_results.csv" in TABLE_FILENAMES
+    assert "size_generalization.csv" in TABLE_FILENAMES
+    assert "assistance_effects.csv" in TABLE_FILENAMES
+    assert len(FIGURE_FILENAMES) == 5
 
 
 def test_locked_run_order_is_complete_reproducible_and_interleaved() -> None:
@@ -418,6 +480,109 @@ def test_result_validation_rejects_duplicate_rows_and_bad_spl() -> None:
         )
 
 
+def test_result_validation_rejects_inconsistent_failure_diagnostics() -> None:
+    row = {
+        "task_id": "a",
+        "success": False,
+        "spl": 0.0,
+        "maze_size": 9,
+        "optimal_length": 3,
+        "path_length": 2,
+        "invalid_actions": 0,
+        "repeat_states": 1,
+        "max_state_visits": 2,
+        "loop_or_cycle": True,
+        "episode_seconds": 0.1,
+        "auxiliary": {"policy_forward_calls": 2.0},
+    }
+    with pytest.raises(ValueError, match="loop/cycle flag"):
+        validate_task_rows([row], 1)
+    row["loop_or_cycle"] = False
+    row["auxiliary"]["policy_forward_calls"] = float("nan")
+    with pytest.raises(ValueError, match="named and finite"):
+        validate_task_rows([row], 1)
+
+
+def test_baseline_compute_is_recomputed_from_task_rows() -> None:
+    config, _ = load_protocol()
+    baseline = config["baselines"][0]
+    rows = [
+        {
+            "path_length": 2,
+            "maze_size": 9,
+            "episode_seconds": 0.25,
+            "auxiliary": {
+                "policy_forward_calls": 2.0,
+                "proposed_invalid": 1.0,
+                "proposed_backtrack": 0.0,
+                "assisted_action": 0.0,
+            },
+        }
+    ]
+    compute = {
+        "task_count": 1,
+        "decision_count": 2,
+        "wallclock_seconds": 0.25,
+        "auxiliary_totals": dict(rows[0]["auxiliary"]),
+        "forward_macs_by_maze_size": {"9": 123},
+    }
+    validate_baseline_compute(
+        compute, rows, baseline=baseline, action_selection="unmasked"
+    )
+    compute["decision_count"] = 1
+    with pytest.raises(ValueError, match="compute decision count"):
+        validate_baseline_compute(
+            compute, rows, baseline=baseline, action_selection="unmasked"
+        )
+
+
+def test_action_protocol_change_requires_recorded_assistance() -> None:
+    raw_row = {
+        "task_id": "task",
+        "success": False,
+        "path_length": 2,
+        "spl": 0.0,
+        "invalid_actions": 1,
+        "repeat_states": 1,
+        "max_state_visits": 2,
+        "loop_or_cycle": False,
+        "final_bfs_distance": 3,
+        "auxiliary": {"assisted_action": 0.0},
+    }
+    corrected_row = {**raw_row, "success": True, "final_bfs_distance": 0}
+    primary = {
+        "bc": [
+            {
+                "metadata": {"training_seed": 42},
+                "task_rows": [raw_row],
+            }
+        ]
+    }
+    corrected = {
+        "bc": [
+            {
+                "metadata": {"training_seed": 42},
+                "task_rows": [corrected_row],
+            }
+        ]
+    }
+    with pytest.raises(ValueError, match="without a recorded assisted action"):
+        validate_action_protocol_consistency(primary, corrected)
+    corrected_row["auxiliary"] = {"assisted_action": 1.0}
+    validate_action_protocol_consistency(primary, corrected)
+
+
+def test_spatial_iteration_curves_cannot_silently_drop_a_seed_key() -> None:
+    records = {
+        "j1": [
+            {"all_iterations": {"4": {}}, "metadata": {}},
+            {"all_iterations": {"4": {}, "8": {}}, "metadata": {}},
+        ]
+    }
+    with pytest.raises(ValueError, match="differ across seeds"):
+        spatial_k_curves(records)
+
+
 def test_interval_status_never_claims_equivalence() -> None:
     assert interval_status({"ci_low": 0.01, "ci_high": 0.02}) == "positive_interval"
     assert interval_status({"ci_low": -0.02, "ci_high": -0.01}) == "negative_interval"
@@ -438,6 +603,77 @@ def test_spatial_checkpoint_metadata_uses_planner_path(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="SHA256"):
         checkpoint_hash_is_valid(
             {"planner_ckpt": str(checkpoint), "checkpoint_sha256": "wrong"}
+        )
+
+
+def test_imported_spatial_checkpoint_identity_is_not_only_a_file_hash(
+    tmp_path: Path,
+) -> None:
+    config, lock = load_protocol()
+    source = lock["source_spatial_experiment"]
+    source_config = json.loads((ROOT / source["config_path"]).read_text())
+    method = config["spatial_methods"][0]
+    variant, train_config, representation_name = source_spatial_variant(
+        source_config, method["name"]
+    )
+    expected_spec = spatial_training_spec(
+        source_config,
+        train_config,
+        variant_name=method["name"],
+        seed=42,
+        representation_name=representation_name,
+    )
+    planner_macs = {
+        "25": {str(value): value for value in source["evaluation_iterations"]}
+    }
+    representation_macs = {"25": 1}
+    metadata = {
+        "source_representation_sha256": None,
+        "planner_parameter_count": 1,
+        "representation_planning_parameter_count": 0,
+        "total_inference_parameter_count": 1,
+        "planner_inference_conv_macs": planner_macs,
+        "representation_inference_conv_macs": representation_macs,
+    }
+    checkpoint_data = {
+        "experiment_family": source["experiment_family"],
+        "format_version": source["format_version"],
+        "stage": "planner",
+        "variant_name": method["name"],
+        "input_mode": variant["input_mode"],
+        "analysis_spec_sha256": source["analysis_spec_sha256"],
+        "experiment_spec_sha256": expected_spec,
+        "protocol": {
+            "seed": 42,
+            "git_commit": source["git_commit"],
+            "git_dirty": False,
+            "code_fingerprint": source["code_fingerprint"],
+        },
+        **metadata,
+        "planner_state_dict": {"weight": torch.ones(1)},
+    }
+    path = tmp_path / "spatial.pt"
+    torch.save(checkpoint_data, path)
+    validate_spatial_checkpoint(
+        path,
+        source=source,
+        method=method,
+        source_config=source_config,
+        seed=42,
+        expected_training_spec=expected_spec,
+        metadata=metadata,
+    )
+    checkpoint_data["variant_name"] = "wrong_variant"
+    torch.save(checkpoint_data, path)
+    with pytest.raises(ValueError, match="variant_name"):
+        validate_spatial_checkpoint(
+            path,
+            source=source,
+            method=method,
+            source_config=source_config,
+            seed=42,
+            expected_training_spec=expected_spec,
+            metadata=metadata,
         )
 
 
@@ -471,3 +707,150 @@ def test_summary_recomputes_navigation_from_manifest_rows() -> None:
             {"method": [{"task_rows": [row], "navigation": stale}]},
             [entry],
         )
+
+
+def test_closure_verifier_detects_artifact_tampering(tmp_path: Path) -> None:
+    config, lock = load_protocol()
+    configured = json.loads(json.dumps(config))
+    configured["paths"]["protocol_lock"] = str(
+        ROOT / "final_closure/configs/protocol_lock.json"
+    )
+    configured["paths"]["train_manifest"] = str(
+        ROOT / config["paths"]["train_manifest"]
+    )
+    configured["paths"]["development_manifest"] = str(
+        ROOT / config["paths"]["development_manifest"]
+    )
+    configured["paths"]["confirmatory_manifest"] = str(
+        ROOT / config["paths"]["confirmatory_manifest"]
+    )
+    configured["paths"]["audit_output"] = str(tmp_path / "audit.json")
+    configured["paths"]["summary_json"] = str(tmp_path / "summary.json")
+    configured["paths"]["paper_report"] = str(tmp_path / "PAPER_RESULTS.md")
+    configured["paths"]["closure_gate"] = str(tmp_path / "gate.json")
+    configured["paths"]["table_dir"] = str(tmp_path / "tables")
+    configured["paths"]["figure_dir"] = str(tmp_path / "figures")
+    configured["paths"]["checkpoint_template"] = str(
+        tmp_path / "checkpoints/{name}_seed{seed}.pt"
+    )
+    configured["paths"]["development_result_template"] = str(
+        tmp_path / "runs/{name}/seed{seed}/development_{action_selection}.json"
+    )
+    configured["paths"]["confirmatory_result_template"] = str(
+        tmp_path / "runs/{name}/seed{seed}/confirmatory_{action_selection}.json"
+    )
+    configured["paths"]["spatial_result_template"] = str(
+        tmp_path / "spatial/{name}/seed{seed}/confirmatory_unmasked.json"
+    )
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps(configured), encoding="utf-8")
+    audit_path = Path(configured["paths"]["audit_output"])
+    audit_path.write_text("{}", encoding="utf-8")
+    report_path = Path(configured["paths"]["paper_report"])
+    report_path.write_text("paper", encoding="utf-8")
+    artifact_paths = [report_path]
+    for directory_key, names in (
+        ("table_dir", TABLE_FILENAMES),
+        ("figure_dir", FIGURE_FILENAMES),
+    ):
+        directory = Path(configured["paths"][directory_key])
+        directory.mkdir(parents=True, exist_ok=True)
+        for name in names:
+            path = directory / name
+            path.write_text(name, encoding="utf-8")
+            artifact_paths.append(path)
+    artifacts = {str(path): sha256_file(path) for path in artifact_paths}
+    sources = [
+        config_path,
+        Path(configured["paths"]["protocol_lock"]),
+        Path(configured["paths"]["train_manifest"]),
+        Path(configured["paths"]["development_manifest"]),
+        Path(configured["paths"]["confirmatory_manifest"]),
+        audit_path,
+        ROOT / lock["source_spatial_experiment"]["config_path"],
+        ROOT / lock["source_spatial_experiment"]["protocol_lock_path"],
+    ]
+    for baseline in config["baselines"]:
+        for seed in config["seeds"]:
+            checkpoint = Path(
+                configured["paths"]["checkpoint_template"].format(
+                    name=baseline["name"], seed=seed
+                )
+            )
+            checkpoint.parent.mkdir(parents=True, exist_ok=True)
+            checkpoint.write_text("checkpoint", encoding="utf-8")
+            sources.append(checkpoint)
+            for split_role in ("development", "confirmatory"):
+                template = configured["paths"][f"{split_role}_result_template"]
+                for action_selection in ("unmasked", "corrected"):
+                    result = Path(
+                        template.format(
+                            name=baseline["name"],
+                            seed=seed,
+                            action_selection=action_selection,
+                        )
+                    )
+                    result.parent.mkdir(parents=True, exist_ok=True)
+                    result.write_text("{}", encoding="utf-8")
+                    sources.append(result)
+    for method in config["spatial_methods"]:
+        for seed in config["seeds"]:
+            checkpoint = (
+                tmp_path / "spatial_checkpoints" / (f"{method['name']}_seed{seed}.pt")
+            )
+            checkpoint.parent.mkdir(parents=True, exist_ok=True)
+            checkpoint.write_text("spatial checkpoint", encoding="utf-8")
+            result = Path(
+                configured["paths"]["spatial_result_template"].format(
+                    name=method["name"], seed=seed
+                )
+            )
+            result.parent.mkdir(parents=True, exist_ok=True)
+            result.write_text(
+                json.dumps({"metadata": {"planner_ckpt": str(checkpoint)}}),
+                encoding="utf-8",
+            )
+            sources.extend([result, checkpoint])
+    summary = {
+        "protocol": {
+            "analysis_spec_sha256": analysis_spec_sha256(configured, lock),
+            "git_commit": git_commit(),
+            "git_dirty": False,
+            "code_fingerprint": experiment_code_fingerprint(),
+        },
+        "artifacts": artifacts,
+        "source_file_count": len(sources),
+        "rerun_records": [],
+    }
+    summary_path = Path(configured["paths"]["summary_json"])
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+    gate = {
+        "format_version": 1,
+        "protocol_id": config["protocol_id"],
+        "status": "complete",
+        "analysis_spec_sha256": analysis_spec_sha256(configured, lock),
+        "git_commit": git_commit(),
+        "code_fingerprint": experiment_code_fingerprint(),
+        "completion_is_score_independent": True,
+        "required_training_seeds": config["seeds"],
+        "required_tasks_per_seed": 900,
+        "required_primary_methods": [
+            *(item["name"] for item in config["spatial_methods"]),
+            *(item["name"] for item in config["baselines"]),
+        ],
+        "source_files": {str(path): sha256_file(path) for path in sources},
+        "summary_path": str(summary_path),
+        "summary_sha256": sha256_file(summary_path),
+        "artifacts": artifacts,
+        "rerun_records": [],
+        "rerun_allowed_only_for": list(RERUN_REASONS),
+        "rerun_for_low_or_surprising_score": False,
+        "next_architecture_search_authorized": False,
+    }
+    Path(configured["paths"]["closure_gate"]).write_text(
+        json.dumps(gate), encoding="utf-8"
+    )
+    assert verify_closure_gate(config_path)["status"] == "verified"
+    report_path.write_text("tampered", encoding="utf-8")
+    with pytest.raises(ValueError, match="SHA256 mismatch"):
+        verify_closure_gate(config_path)

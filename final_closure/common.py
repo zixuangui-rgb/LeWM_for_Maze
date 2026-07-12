@@ -40,6 +40,12 @@ from spatial_jepa_planning.common import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
+RERUN_REASONS = (
+    "interrupted_execution",
+    "missing_or_duplicate_task",
+    "manifest_checkpoint_or_code_hash_mismatch",
+    "non_finite_output",
+)
 
 
 def load_json(path: str | Path) -> dict[str, Any]:
@@ -150,6 +156,56 @@ def require_new_output(path: str | Path, overwrite: bool) -> None:
             f"refusing to overwrite formal output {path}; overwrite is reserved "
             "for documented execution-failure reruns"
         )
+
+
+def prepare_rerun(
+    paths: Iterable[str | Path],
+    *,
+    overwrite: bool,
+    reason: str,
+) -> dict[str, Any] | None:
+    outputs = [Path(path) for path in paths]
+    existing = [path for path in outputs if path.exists()]
+    if not overwrite:
+        if reason:
+            raise ValueError("--rerun-reason requires --overwrite")
+        return None
+    if reason not in RERUN_REASONS:
+        raise ValueError("overwriting formal output requires an allowed rerun reason")
+    if not existing:
+        raise ValueError(
+            "--overwrite was requested but no selected output exists; rerun the "
+            "missing output without an overwrite flag"
+        )
+    return {
+        "reason": reason,
+        "superseded_outputs": {
+            str(path): sha256_file(path) for path in sorted(existing)
+        },
+    }
+
+
+def validate_rerun_record(value: Any, label: str) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} rerun record must be an object")
+    reason = value.get("reason")
+    if reason not in RERUN_REASONS:
+        raise ValueError(f"{label} has an invalid rerun reason")
+    outputs = value.get("superseded_outputs")
+    if not isinstance(outputs, dict) or not outputs:
+        raise ValueError(f"{label} rerun record has no superseded outputs")
+    for path, digest in outputs.items():
+        if not isinstance(path, str) or not path:
+            raise ValueError(f"{label} rerun output path is invalid")
+        if (
+            not isinstance(digest, str)
+            or len(digest) != 64
+            or any(character not in "0123456789abcdef" for character in digest)
+        ):
+            raise ValueError(f"{label} rerun SHA256 is invalid")
+    return value
 
 
 def require_study_open(config: dict[str, Any]) -> None:
@@ -305,6 +361,7 @@ def load_checkpoint(
     expected_baseline = baseline_config(config, name)
     if data.get("baseline_kind") != expected_baseline["kind"]:
         raise ValueError("checkpoint baseline kind does not match the locked config")
+    validate_rerun_record(data.get("rerun"), f"checkpoint {path}")
     expected_analysis = analysis_spec_sha256(config, lock)
     expected_training = training_spec_sha256(config, lock, name=name, seed=seed)
     if data.get("analysis_spec_sha256") != expected_analysis:
@@ -388,6 +445,33 @@ def validate_task_rows(rows: Any, expected_count: int) -> list[dict[str, Any]]:
             invalid = int(row["invalid_actions"])
             if not 0 <= invalid <= path_length:
                 raise ValueError("invalid action count exceeds executed path length")
+        if "repeat_states" in row:
+            repeats = int(row["repeat_states"])
+            if not 0 <= repeats <= path_length:
+                raise ValueError("repeat-state count exceeds executed path length")
+        if "max_state_visits" in row:
+            max_visits = int(row["max_state_visits"])
+            if not 1 <= max_visits <= path_length + 1:
+                raise ValueError(
+                    "maximum state visits is inconsistent with path length"
+                )
+            if "loop_or_cycle" in row and bool(row["loop_or_cycle"]) != (
+                max_visits >= 4
+            ):
+                raise ValueError("loop/cycle flag disagrees with maximum state visits")
+        if "episode_seconds" in row:
+            episode_seconds = float(row["episode_seconds"])
+            if not math.isfinite(episode_seconds) or episode_seconds < 0.0:
+                raise ValueError(
+                    "episode wall-clock time must be finite and non-negative"
+                )
+        if "auxiliary" in row:
+            auxiliary = row["auxiliary"]
+            if not isinstance(auxiliary, dict):
+                raise ValueError("task auxiliary metrics must be an object")
+            for name, value in auxiliary.items():
+                if not isinstance(name, str) or not math.isfinite(float(value)):
+                    raise ValueError("task auxiliary metrics must be named and finite")
         if row["success"] and int(row.get("final_bfs_distance", 0)) != 0:
             raise ValueError("successful task must end at BFS distance zero")
     return rows
@@ -573,6 +657,7 @@ def environment_summary() -> dict[str, Any]:
 __all__ = [
     "ACTION_IDS",
     "ACTION_TO_SLOT",
+    "RERUN_REASONS",
     "ROOT",
     "analysis_spec_sha256",
     "atomic_json_dump",
@@ -595,6 +680,7 @@ __all__ = [
     "next_state",
     "observe_state",
     "pad_bc_observation",
+    "prepare_rerun",
     "protocol_metadata",
     "read_jsonl",
     "require_clean_worktree",
@@ -610,6 +696,7 @@ __all__ = [
     "task_seed",
     "training_spec_sha256",
     "validate_manifest_entry",
+    "validate_rerun_record",
     "validate_task_rows",
     "verify_holdout",
 ]

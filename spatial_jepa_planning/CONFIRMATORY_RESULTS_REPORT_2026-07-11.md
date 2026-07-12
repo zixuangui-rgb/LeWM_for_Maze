@@ -11,13 +11,14 @@ bootstrap + Bonferroni simultaneous CI 计算得出）。无手敲数字。
 
 ## 0. 一句话结论
 
-迷宫规划上，任何 feedforward（非迭代）规划器——无论 pooled latent、per-cell
-value field，还是全感受野 dilated CNN——都被钉死在约 0.60-0.63 SR；而 learned
-迭代规划（weight-shared ConvGRU recall + progressive K + K-budgeted 监督）把它推到
-0.949（逼近 oracle 0.979），且 Spatial-JEPA 世界模型表征不劣于 raw 像素输入
-（0.936 vs 0.949）。这把 P4 的“feedforward 天花板”结论从一次性观察升级为有
-全感受野对照 + confirmatory hold-out + 预注册 Bonferroni 统计的正式检验，并证明
-迭代是打破天花板的关键，而非感受野或表征。
+在本协议测试的 feedforward（非迭代）规划器中，无论 pooled latent、per-cell
+value field，还是全感受野 dilated CNN，SR 都集中在约 0.60-0.63；learned
+迭代系统（weight-shared ConvGRU recall + progressive K + K-budgeted 监督）达到
+0.949（接近 oracle 0.979），且 Spatial-JEPA 世界模型表征对 raw 像素满足预注册的
+非劣判据（0.936 vs 0.949）。全感受野对照 + confirmatory hold-out + 预注册
+Bonferroni 统计支持这样的限定结论：在这些架构及其既定计算预算下，单纯扩大
+感受野不足以消除观测到的 feedforward 平台，而 learned 迭代系统能够越过它。
+由于迭代系统使用约 95 倍推理计算，不能把差异单独因果归因于 recurrence。
 
 ---
 
@@ -60,11 +61,11 @@ value field，还是全感受野 dilated CNN——都被钉死在约 0.60-0.63 S
 
 **解读：**
 
-- **feedforward 天花板约 0.60-0.63 复现：** r1/r2/r2d（全感受野）/j0 全部
+- **测试到的 feedforward 平台约 0.60-0.63：** r1/r2/r2d（全感受野）/j0 全部
   聚在 0.60-0.63。r2d（全感受野 dilated FF）= 0.602 ≈ r2（普通 FF）=
-  0.600 → 天花板不是感受野问题。
-- **迭代打破天花板：** r3（K64）= 0.860 → r4（K128）= 0.949；更多迭代
-  → 更高 SR。
+  0.600 → 在该实现中，仅扩大感受野不足以改善平台。
+- **迭代系统越过平台：** r3（K64）= 0.860，r4（K128）= 0.949；完整 K 曲线中
+  更高预算通常对应更高 SR，但这不是等计算量的 recurrence 因果效应。
 - **learned（非 oracle）：** r4/j1/j2/j3 不用 hardcoded 墙掩码，是真正学出来的
   迭代规划。
 
@@ -78,7 +79,7 @@ value field，还是全感受野 dilated CNN——都被钉死在约 0.60-0.63 S
 | H2 JEPA 非劣 | j1 - r4 | noninferiority，CI low > -0.03 | -0.013 [-0.029, +0.004] | supported（下界 -0.029 刚好在 -0.03 内，较窄） |
 | H3 staged 增益 | j2 - j1 | superiority，CI low ≥ +0.03 | +0.008 [-0.005, +0.022] | not_supported |
 
-- **H1（决定性）：** learned 迭代比全感受野 FF 高 +34.6 点。注意 r4 用 17.7
+- **H1（主假设获支持）：** learned 迭代系统比全感受野 FF 高 +34.6 点。注意 r4 用 17.7
   GMACs vs r2d 0.186 GMACs（约 95× 计算量），故 H1 估计的是“完整迭代系统 +
   更多 inference compute”的增益，不能单独归因于 recurrence——这是协议诚实
   声明的。
@@ -93,7 +94,8 @@ value field，还是全感受野 dilated CNN——都被钉死在约 0.60-0.63 S
 - **r1 - r0 = +0.474：** 对 FF，动作目标（action CE）是关键杠杆，纯 value
   回归（r0=0.151）很差。
 - **r2 - r1 = -0.026：** FF 上加 Bellman+gap 反而略伤（相对纯 action CE）。
-- **r2d - r2 = +0.003：** dilation/全 RF 对 FF 可忽略 → 再证天花板非感受野。
+- **r2d - r2 = +0.003：** dilation/全 RF 在该对照中几乎无增益，说明扩大感受野
+  本身不足以解释或消除这一平台。
 - **r3 - r2d = +0.257：** 固定 K64 迭代即大涨。
 - **j0 - r2d = +0.021：** Spatial-JEPA 表征对 FF 略有帮助（边际）。
 - **j3 - j2 = -0.005：** joint 训练不优于 staged；梯度审计显示 rep/plan 梯度
@@ -103,7 +105,7 @@ value field，还是全感受野 dilated CNN——都被钉死在约 0.60-0.63 S
 
 ## 4. 机制发现（为什么迭代能，FF 不能）
 
-### 4.1 Local top-1 是 SR 的金标准预测器
+### 4.1 Local top-1 是 SR 的强描述性诊断量
 
 延续 P4 诊断，跨 feedforward 与迭代两个 regime：
 
@@ -111,8 +113,9 @@ value field，还是全感受野 dilated CNN——都被钉死在约 0.60-0.63 S
 - 迭代：local top-1 0.979-0.985 → SR 0.936-0.949；
 - oracle：0.98+ → 0.979。
 
-局部动作排序能力直接决定 SR；迭代把 local top-1 从 0.94 推到 0.985，SR 随之
-从 0.63 到 0.95。
+在这些变体间，局部动作排序与 SR 强烈同向变化：迭代系统的 local top-1 从约
+0.94 提高到 0.985，同时 SR 从约 0.63 提高到 0.95。该跨变体关联支持机制解释，
+但不是对 local top-1 单独因果作用的识别。
 
 ### 4.2 shortest-path 分层
 
@@ -121,7 +124,8 @@ FF 在长路径上崩，迭代不会：
 - FF（r2d）：路径 1-16 = 0.961，33-64 = 0.289，65-128 = 0.028；
 - r4：1-16 = 1.000，33-64 = 0.995，65-128 = 0.809。
 
-FF 无法把 value 传播远；迭代可以。这是天花板的核心机制。
+测试到的 FF 在长路径上表现出明显衰减，而迭代系统没有同等程度的衰减；这与
+“固定深度传播不足”机制一致，但不排除计算量和训练目标等共同差异。
 
 ### 4.3 size 外推（OOD 23/25）
 
@@ -143,9 +147,10 @@ FF 失败部分是 invalid-action 翻滚；迭代规划器导航干净。`model_
 
 ### 4.5 decoded-map BFS
 
-decoded-map BFS = 0.979（rep 完美可解码：wall IoU/agent/goal acc 全 1.000）：地图
-信息一直在表征里；瓶颈从来是 planner，不是 representation——这与 H2（frozen
-JEPA 够用）一致。
+decoded-map BFS = 0.979（在该 decoder 下，wall IoU/agent/goal acc 全 1.000）：
+这说明完成任务所需的地图信息可从该表征中恢复，planner 是当前系统中更直接的
+限制因素；它不证明 representation 在所有设置中都不是瓶颈。这与 H2 的限定结论
+（frozen JEPA 在本协议下满足非劣判据）一致。
 
 ---
 
@@ -155,7 +160,7 @@ JEPA 够用）一致。
 |---|---|---|
 | diagnostics | 三墙：局部排序/投影器/rollout 漂移 | 锚点 |
 | planning_repair | 表征墙可修（valid 0.85）但不 SR-binding；Wall1 是天花板 | 锚点 |
-| P4 fcvp/vi | feedforward value field 撞 0.63；只有 hardcoded VI 到 0.957 | 被本实验升级：0.63 天花板用 r2d 全 RF 对照正式确认；learned 迭代（非 oracle）首次到 0.949 |
+| P4 fcvp/vi | feedforward value field 撞 0.63；只有 hardcoded VI 到 0.957 | 被本实验升级：测试到的 0.63 平台加入 r2d 全 RF 对照；learned 迭代（非 oracle）首次到 0.949 |
 | 本实验（Spatial-JEPA） | learned 迭代打破天花板；JEPA 表征非劣；staged 无增益 | 正式 confirmatory 结论 |
 
 **关键推进：** P4 的 vi=0.957 用的是 hardcoded 墙掩码 = oracle；本实验的
@@ -169,8 +174,8 @@ r4=0.949 / j1=0.936 是 learned ConvGRU 迭代（无 oracle 墙），且在新 h
 
 ### 可以声称
 
-- 新 confirmatory hold-out 上 feedforward 规划器约 0.63 上限（含全感受野 r2d
-  对照）；
+- 新 confirmatory hold-out 上，测试到的 feedforward 规划器形成约 0.63 平台
+  （含全感受野 r2d 对照），但不能外推为所有 FF 架构的普遍上限；
 - learned 迭代规划稳定打破该上限到约 0.95（H1 supported）；
 - frozen Spatial-JEPA 表征非劣于 raw（H2 supported）；
 - staged 适配无显著增益（H3 not_supported）。

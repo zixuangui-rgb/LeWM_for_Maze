@@ -9,7 +9,9 @@ The prior `spatial_jepa_planning` experiment already tested whether preserving a
 This addendum answers the two remaining benchmark questions on exactly those tasks:
 
 1. How does the frozen Spatial-JEPA planner compare with a strong raw-observation imitation policy?
-2. How much of the improvement over the original work comes from replacing the vector LeWM latent-L2 rollout planner?
+2. What is the system-level capability gap between the fixed vector LeWM latent-L2 CEM system and the fixed Spatial-JEPA iterative system on identical tasks?
+
+The second comparison is deliberately descriptive. Because representation, supervision, training recipe, and inference compute all change together, it cannot attribute the gap to any one component.
 
 The final table contains four methods:
 
@@ -38,7 +40,9 @@ Scientific safeguards:
 - four SR comparisons use Bonferroni simultaneous intervals at familywise alpha 0.05;
 - SPL and subgroup results are fixed secondary descriptions;
 - scores never determine whether a run is repeated;
-- closure requires hashes, unique task rows, full seed coverage, tables, figures, and a report.
+- closure requires hashes, unique task rows, full seed coverage, tables, figures, and a report;
+- every imported K curve must contain the same locked seven iteration budgets for every seed, with every row rechecked against the manifest;
+- all aggregate navigation and compute fields are recomputed from task rows rather than trusted from stored summaries.
 
 ## Contents
 
@@ -53,6 +57,7 @@ Scientific safeguards:
 | `evaluate.py` | Shared task executor for unmasked and corrected evaluation |
 | `summarize.py` | Crossed bootstrap, tables, report, and closure gate |
 | `plot_results.py` | Publication PNG figures |
+| `verify_closure.py` | Independent post-closure hash and schema verification |
 | `run_plan.py` | Resumable orchestration and dry-run command generation |
 | `smoke_test.py` | CPU integration test across both model paths |
 | `VALIDATION.md` | Pre-commit static, parity, determinism, and full-shape E2E record |
@@ -65,9 +70,10 @@ When every requirement passes, `summarize.py` creates:
 
 - `final_closure_runs/summary.json`
 - `final_closure_runs/PAPER_RESULTS.md`
-- `final_closure_runs/tables/*.csv`
+- `final_closure_runs/tables/*.csv` (9 fixed audit-ready tables)
 - `final_closure_runs/figures/*.png`
 - `final_closure_runs/CLOSURE_COMPLETE.json`
 
 The final gate is generated regardless of which method wins. A surprising result belongs in the paper; it is not permission to tune on the confirmatory set.
+
 Once the gate exists, the training, evaluation, summary, and plotting entry points reject further formal mutation.

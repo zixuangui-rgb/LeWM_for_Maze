@@ -10,7 +10,7 @@ After the closure gate passes, the paper may state:
 4. how performance changes from seen sizes to OOD sizes 23/25 and across path-length bins;
 5. how much true-wall correction improves BC and LeWM;
 6. whether LeWM's historical development score depended materially on the corrected executor;
-7. whether the retained spatial representation and iterative planner close the specific capability gap exposed by vector latent rollout planning.
+7. the system-level capability difference between the fixed Spatial-JEPA iterative system and the fixed vector latent-rollout system, without attributing that difference to one component.
 
 ## Claims this stage cannot support
 
@@ -24,6 +24,7 @@ The paper must not claim:
 - that cross-family score differences isolate representation quality, because supervision and training compute are not equalized;
 - that one Procgen Maze result proves JEPA superiority in general;
 - that an untested head, memory module, or loss would not help.
+- that the experiment was prospectively powered to detect a prespecified minimum cross-family effect; achieved uncertainty is reported through intervals instead.
 
 ## Decision language
 

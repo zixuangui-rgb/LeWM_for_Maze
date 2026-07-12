@@ -5,28 +5,45 @@ from __future__ import annotations
 
 import argparse
 import csv
+import importlib.metadata
 import json
+import math
 from pathlib import Path
 from typing import Any
 
-from final_closure import EXPERIMENT_FAMILY, FORMAT_VERSION
+import torch
+
+from final_closure import (
+    EXPERIMENT_FAMILY,
+    FIGURE_FILENAMES,
+    FORMAT_VERSION,
+    TABLE_FILENAMES,
+)
 from final_closure.common import (
+    RERUN_REASONS,
     analysis_spec_sha256,
     atomic_json_dump,
     crossed_paired_bootstrap,
+    environment_summary,
     experiment_code_fingerprint,
     git_commit,
+    git_worktree_dirty,
     load_checkpoint,
     load_config,
     load_json,
     mean_std,
+    prepare_rerun,
     read_jsonl,
     require_clean_worktree,
     require_new_output,
     require_study_open,
     sha256_file,
     summarize_rows,
+    validate_rerun_record,
     validate_task_rows,
+)
+from spatial_jepa_planning.run_plan import (
+    training_spec_sha256 as spatial_training_spec_sha256,
 )
 
 
@@ -36,6 +53,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip-figures", action="store_true")
     parser.add_argument("--allow-dirty-worktree", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument("--rerun-reason", choices=RERUN_REASONS, default="")
     return parser.parse_args()
 
 
@@ -64,6 +82,204 @@ def checkpoint_hash_is_valid(metadata: dict[str, Any]) -> None:
     assert_equal(
         sha256_file(path), metadata.get("checkpoint_sha256"), "checkpoint SHA256"
     )
+
+
+def source_spatial_variant(
+    source_config: dict[str, Any], name: str
+) -> tuple[dict[str, Any], dict[str, Any], str | None]:
+    matches = [item for item in source_config["planners"] if item["name"] == name]
+    if len(matches) != 1:
+        raise ValueError(f"source Spatial-JEPA config lacks one variant named {name}")
+    variant = matches[0]
+    train_config = dict(source_config["representation_defaults"])
+    train_config.update(source_config["planner_defaults"])
+    train_config.update(variant.get("train", {}))
+    train_config["input_mode"] = variant["input_mode"]
+    representation_name = (
+        str(variant["representation"])
+        if variant["input_mode"] == "spatial_jepa"
+        else None
+    )
+    return variant, train_config, representation_name
+
+
+def validate_spatial_checkpoint(
+    path: Path,
+    *,
+    source: dict[str, Any],
+    method: dict[str, Any],
+    source_config: dict[str, Any],
+    seed: int,
+    expected_training_spec: str,
+    metadata: dict[str, Any],
+) -> None:
+    checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+    if not isinstance(checkpoint, dict):
+        raise ValueError(f"spatial checkpoint is not a mapping: {path}")
+    variant, train_config, representation_name = source_spatial_variant(
+        source_config, method["name"]
+    )
+    expected_fields = {
+        "experiment_family": source["experiment_family"],
+        "format_version": source["format_version"],
+        "stage": "planner",
+        "variant_name": method["name"],
+        "input_mode": variant["input_mode"],
+        "analysis_spec_sha256": source["analysis_spec_sha256"],
+        "experiment_spec_sha256": expected_training_spec,
+    }
+    for field, expected in expected_fields.items():
+        assert_equal(checkpoint.get(field), expected, f"spatial checkpoint {field}")
+    protocol = checkpoint.get("protocol", {})
+    assert_equal(protocol.get("seed"), seed, "spatial checkpoint seed")
+    assert_equal(protocol.get("git_commit"), source["git_commit"], "checkpoint commit")
+    assert_equal(protocol.get("git_dirty"), False, "checkpoint dirty flag")
+    assert_equal(
+        protocol.get("code_fingerprint"),
+        source["code_fingerprint"],
+        "checkpoint code fingerprint",
+    )
+    assert_equal(
+        checkpoint.get("source_representation_sha256"),
+        metadata.get("source_representation_sha256"),
+        "spatial source representation hash",
+    )
+    assert_equal(
+        checkpoint.get("planner_parameter_count"),
+        metadata.get("planner_parameter_count"),
+        "spatial planner parameter count",
+    )
+    assert_equal(
+        checkpoint.get("representation_planning_parameter_count"),
+        metadata.get("representation_planning_parameter_count"),
+        "spatial representation parameter count",
+    )
+    assert_equal(
+        checkpoint.get("total_inference_parameter_count"),
+        metadata.get("total_inference_parameter_count"),
+        "spatial total parameter count",
+    )
+    assert_equal(
+        checkpoint.get("planner_inference_conv_macs"),
+        metadata.get("planner_inference_conv_macs"),
+        "spatial planner MAC accounting",
+    )
+    assert_equal(
+        checkpoint.get("representation_inference_conv_macs"),
+        metadata.get("representation_inference_conv_macs"),
+        "spatial representation MAC accounting",
+    )
+    expected_training = spatial_training_spec_sha256(
+        source_config,
+        train_config,
+        variant_name=method["name"],
+        seed=seed,
+        representation_name=representation_name,
+    )
+    assert_equal(expected_training, expected_training_spec, "spatial training spec")
+    for state_name in ("planner_state_dict", "representation_state_dict"):
+        state = checkpoint.get(state_name)
+        if state is None:
+            continue
+        if not isinstance(state, dict) or not state:
+            raise ValueError(f"spatial checkpoint has invalid {state_name}")
+        if any(
+            not isinstance(tensor, torch.Tensor) or not torch.isfinite(tensor).all()
+            for tensor in state.values()
+        ):
+            raise ValueError(f"spatial checkpoint has non-finite {state_name}")
+
+
+def assert_close(actual: Any, expected: float, label: str) -> None:
+    value = float(actual)
+    if not math.isfinite(value) or not math.isclose(
+        value, float(expected), rel_tol=1e-12, abs_tol=1e-12
+    ):
+        raise ValueError(f"result mismatch for {label}: {value!r} != {expected!r}")
+
+
+def validate_baseline_compute(
+    compute: Any,
+    rows: list[dict[str, Any]],
+    *,
+    baseline: dict[str, Any],
+    action_selection: str,
+) -> None:
+    if not isinstance(compute, dict):
+        raise ValueError("baseline result is missing compute accounting")
+    assert_equal(int(compute.get("task_count", -1)), len(rows), "compute task count")
+    decisions = sum(int(row["path_length"]) for row in rows)
+    assert_equal(
+        int(compute.get("decision_count", -1)), decisions, "compute decision count"
+    )
+    if any("episode_seconds" not in row for row in rows):
+        raise ValueError("baseline task rows must contain episode wall-clock time")
+    assert_close(
+        compute.get("wallclock_seconds"),
+        sum(float(row["episode_seconds"]) for row in rows),
+        "compute wall-clock total",
+    )
+    auxiliary_names = sorted(
+        {name for row in rows for name in row.get("auxiliary", {})}
+    )
+    expected_totals = {
+        name: sum(float(row.get("auxiliary", {}).get(name, 0.0)) for row in rows)
+        for name in auxiliary_names
+    }
+    actual_totals = compute.get("auxiliary_totals")
+    if not isinstance(actual_totals, dict):
+        raise ValueError("compute accounting lacks auxiliary totals")
+    assert_equal(set(actual_totals), set(expected_totals), "compute auxiliary fields")
+    for name, expected in expected_totals.items():
+        assert_close(actual_totals[name], expected, f"compute auxiliary total {name}")
+    for row in rows:
+        path_length = int(row["path_length"])
+        auxiliary = row.get("auxiliary", {})
+        for name in ("proposed_invalid", "proposed_backtrack", "assisted_action"):
+            value = float(auxiliary.get(name, 0.0))
+            if not value.is_integer() or not 0.0 <= value <= path_length:
+                raise ValueError(f"{name} exceeds the episode decision count")
+        if (
+            action_selection == "unmasked"
+            and float(auxiliary.get("assisted_action", 0.0)) != 0.0
+        ):
+            raise ValueError("unmasked evaluation contains assisted actions")
+        if baseline["kind"] == "bc":
+            assert_close(
+                auxiliary.get("policy_forward_calls", 0.0),
+                path_length,
+                "BC policy calls",
+            )
+        else:
+            planner = baseline["planner"]
+            assert_close(auxiliary.get("cem_calls", 0.0), path_length, "LeWM CEM calls")
+            expected_predictions = (
+                path_length
+                * int(planner["num_candidates"])
+                * int(planner["horizon"])
+                * int(planner["cem_iters"])
+            )
+            assert_close(
+                auxiliary.get("cem_candidate_transition_predictions", 0.0),
+                expected_predictions,
+                "LeWM candidate transition count",
+            )
+            expected_fallback = int(
+                float(auxiliary.get("assisted_action", 0.0))
+                * (max(int(value) for value in planner["allowed_actions"]) + 1)
+            )
+            assert_close(
+                auxiliary.get("fallback_transition_predictions", 0.0),
+                expected_fallback,
+                "LeWM fallback transition count",
+            )
+    if baseline["kind"] == "bc":
+        macs = compute.get("forward_macs_by_maze_size")
+        expected_sizes = {str(int(row["maze_size"])) for row in rows}
+        if not isinstance(macs, dict) or set(macs) != expected_sizes:
+            raise ValueError("BC MAC map does not cover the evaluated maze sizes")
+        if any(int(value) <= 0 for value in macs.values()):
+            raise ValueError("BC MAC counts must be positive")
 
 
 def validate_baseline_result(
@@ -122,6 +338,7 @@ def validate_baseline_result(
         "oracle assistance flag",
     )
     assert_equal(metadata.get("formal_evaluation"), True, "formal evaluation flag")
+    validate_rerun_record(metadata.get("rerun"), "baseline result")
     checkpoint_hash_is_valid(metadata)
     results = data.get("results", {})
     rows = validate_task_rows(results.get("task_rows"), int(lock[role_key]["count"]))
@@ -130,6 +347,12 @@ def validate_baseline_result(
         raise ValueError("baseline result is missing navigation summary")
     if int(navigation.get("overall", {}).get("n", -1)) != len(rows):
         raise ValueError("baseline navigation count does not match task rows")
+    validate_baseline_compute(
+        results.get("compute"),
+        rows,
+        baseline=baseline,
+        action_selection=action_selection,
+    )
     return {
         "navigation": navigation,
         "task_rows": rows,
@@ -144,6 +367,8 @@ def validate_spatial_result(
     lock: dict[str, Any],
     method: dict[str, Any],
     seed: int,
+    entries: list[dict[str, Any]],
+    source_config: dict[str, Any],
 ) -> dict[str, Any]:
     metadata = data.get("metadata", {})
     source = lock["source_spatial_experiment"]
@@ -192,22 +417,59 @@ def validate_spatial_result(
     )
     assert_equal(int(metadata.get("task_count", -1)), 900, "spatial task count")
     assert_equal(metadata.get("comparable_to_primary"), True, "spatial comparability")
-    if not metadata.get("analysis_spec_sha256"):
-        raise ValueError("spatial result is missing its analysis spec")
+    assert_equal(
+        metadata.get("analysis_spec_sha256"),
+        source["analysis_spec_sha256"],
+        "spatial evaluation analysis spec",
+    )
+    assert_equal(
+        metadata.get("training_analysis_spec_sha256"),
+        source["analysis_spec_sha256"],
+        "spatial training analysis spec",
+    )
+    variant, train_config, representation_name = source_spatial_variant(
+        source_config, method["name"]
+    )
+    expected_training_spec = spatial_training_spec_sha256(
+        source_config,
+        train_config,
+        variant_name=method["name"],
+        seed=seed,
+        representation_name=representation_name,
+    )
+    assert_equal(
+        metadata.get("training_experiment_spec_sha256"),
+        expected_training_spec,
+        "spatial training spec",
+    )
+    assert_equal(
+        int(method["primary_iterations"]),
+        int(variant["primary_iterations"]),
+        "spatial primary iterations",
+    )
     assert_equal(
         metadata.get("training_analysis_spec_sha256"),
         metadata.get("analysis_spec_sha256"),
         "spatial train/evaluation analysis spec",
     )
-    if not metadata.get("training_experiment_spec_sha256"):
-        raise ValueError("spatial result is missing its training spec")
     assert_equal(int(metadata.get("max_per_size", -1)), 0, "spatial max-per-size")
     assert_equal(int(metadata.get("limit", -1)), 0, "spatial task limit")
     assert_equal(
         metadata.get("recompute_every_step"), False, "spatial field recomputation"
     )
     checkpoint_hash_is_valid(metadata)
+    validate_spatial_checkpoint(
+        result_checkpoint_path(metadata),
+        source=source,
+        method=method,
+        source_config=source_config,
+        seed=seed,
+        expected_training_spec=expected_training_spec,
+        metadata=metadata,
+    )
     results = data.get("results", {})
+    expected_iterations = {str(value) for value in source["evaluation_iterations"]}
+    assert_equal(set(results), expected_iterations, "spatial iteration curve")
     primary_key = str(method["primary_iterations"])
     if primary_key not in results:
         raise ValueError(f"spatial result lacks preregistered K={primary_key}")
@@ -223,6 +485,16 @@ def validate_spatial_result(
             raise ValueError("spatial K curves do not evaluate identical task IDs")
         if result.get("navigation") != summarize_rows(rows, 21, 128):
             raise ValueError(f"spatial K={iteration} navigation summary is stale")
+        validate_records_against_manifest(
+            {
+                f"{method['name']} K={iteration}": [
+                    {"task_rows": rows, "navigation": result["navigation"]}
+                ]
+            },
+            entries,
+        )
+    planner_macs = metadata.get("planner_inference_conv_macs", {}).get("25", {})
+    assert_equal(set(planner_macs), expected_iterations, "spatial K MAC curve")
     primary = results[primary_key]
     return {
         "navigation": primary["navigation"],
@@ -266,6 +538,7 @@ def validate_protocol_audit(
         experiment_code_fingerprint(),
         "audit code fingerprint",
     )
+    validate_rerun_record(metadata.get("rerun"), "protocol audit")
     manifests = data.get("manifests", {})
     assert_equal(manifests.get("entries_regenerated"), True, "entry regeneration")
     expected_hashes = {
@@ -307,6 +580,11 @@ def validate_protocol_audit(
         int(lock["confirmatory_manifest"]["step_cap_failures"]),
         "audit step-cap failures",
     )
+    assert_close(
+        manifests.get("confirmatory_oracle_ceiling"),
+        float(lock["confirmatory_manifest"]["expected_exact_oracle_sr"]),
+        "audit oracle ceiling",
+    )
     source = data.get("source_spatial_experiment", {})
     assert_equal(
         source.get("git_commit"),
@@ -317,6 +595,31 @@ def validate_protocol_audit(
         source.get("code_fingerprint"),
         lock["source_spatial_experiment"]["code_fingerprint"],
         "audit spatial source fingerprint",
+    )
+    assert_equal(
+        source.get("required_methods"),
+        lock["source_spatial_experiment"]["required_methods"],
+        "audit spatial methods",
+    )
+    assert_equal(
+        source.get("evaluation_iterations"),
+        lock["source_spatial_experiment"]["evaluation_iterations"],
+        "audit spatial iterations",
+    )
+    assert_equal(
+        source.get("config_sha256"),
+        lock["source_spatial_experiment"]["config_sha256"],
+        "audit spatial config hash",
+    )
+    assert_equal(
+        source.get("protocol_lock_sha256"),
+        lock["source_spatial_experiment"]["protocol_lock_sha256"],
+        "audit spatial protocol-lock hash",
+    )
+    assert_equal(
+        source.get("analysis_spec_sha256"),
+        lock["source_spatial_experiment"]["analysis_spec_sha256"],
+        "audit spatial analysis spec",
     )
 
 
@@ -331,6 +634,52 @@ def require_task_alignment(records: dict[str, list[dict[str, Any]]]) -> None:
                 canonical = identifiers
             elif identifiers != canonical:
                 raise ValueError(f"{name} does not contain the canonical 900 tasks")
+
+
+def validate_action_protocol_consistency(
+    primary: dict[str, list[dict[str, Any]]],
+    corrected: dict[str, list[dict[str, Any]]],
+) -> None:
+    trajectory_fields = (
+        "success",
+        "path_length",
+        "spl",
+        "invalid_actions",
+        "repeat_states",
+        "max_state_visits",
+        "loop_or_cycle",
+        "final_bfs_distance",
+    )
+    if set(primary) != set(corrected):
+        raise ValueError("action protocols contain different baseline methods")
+    for name in primary:
+        raw_by_seed = {
+            int(run["metadata"]["training_seed"]): run for run in primary[name]
+        }
+        corrected_by_seed = {
+            int(run["metadata"]["training_seed"]): run for run in corrected[name]
+        }
+        if set(raw_by_seed) != set(corrected_by_seed):
+            raise ValueError(f"{name} action protocols contain different seeds")
+        for seed, raw_run in raw_by_seed.items():
+            raw_rows = {str(row["task_id"]): row for row in raw_run["task_rows"]}
+            corrected_rows = {
+                str(row["task_id"]): row for row in corrected_by_seed[seed]["task_rows"]
+            }
+            if set(raw_rows) != set(corrected_rows):
+                raise ValueError(f"{name} seed={seed} action protocols differ by task")
+            for task, raw_row in raw_rows.items():
+                corrected_row = corrected_rows[task]
+                assisted = float(
+                    corrected_row.get("auxiliary", {}).get("assisted_action", 0.0)
+                )
+                if assisted == 0.0:
+                    for field in trajectory_fields:
+                        if corrected_row.get(field) != raw_row.get(field):
+                            raise ValueError(
+                                f"{name} seed={seed} task={task} changed {field} "
+                                "without a recorded assisted action"
+                            )
 
 
 def validate_records_against_manifest(
@@ -378,6 +727,7 @@ def summarize_method(runs: list[dict[str, Any]]) -> dict[str, Any]:
         size: {
             "sr": mean_std(run["navigation"]["by_size"][size]["sr"] for run in runs),
             "spl": mean_std(run["navigation"]["by_size"][size]["spl"] for run in runs),
+            "n_per_seed": int(runs[0]["navigation"]["by_size"][size]["n"]),
         }
         for size in sizes
     }
@@ -403,6 +753,32 @@ def summarize_method(runs: list[dict[str, Any]]) -> dict[str, Any]:
         ),
     }
     return summary
+
+
+def per_seed_results(
+    records: dict[str, list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for name, runs in records.items():
+        for run in runs:
+            navigation = run["navigation"]
+            rows.append(
+                {
+                    "method": name,
+                    "training_seed": int(run["metadata"]["training_seed"]),
+                    "overall_sr": float(navigation["overall"]["sr"]),
+                    "overall_spl": float(navigation["overall"]["spl"]),
+                    "seen_sr": float(navigation["seen"]["sr"]),
+                    "seen_spl": float(navigation["seen"]["spl"]),
+                    "ood_sr": float(navigation["ood"]["sr"]),
+                    "ood_spl": float(navigation["ood"]["spl"]),
+                    "invalid_rate": float(navigation["overall"]["invalid_rate"]),
+                    "loop_or_cycle_rate": float(
+                        navigation["overall"]["loop_or_cycle_rate"]
+                    ),
+                }
+            )
+    return sorted(rows, key=lambda row: (str(row["method"]), row["training_seed"]))
 
 
 def _one_int(values: list[Any], label: str) -> int:
@@ -603,10 +979,10 @@ def spatial_k_curves(
 ) -> dict[str, Any]:
     curves: dict[str, Any] = {}
     for name, records in spatial_records.items():
-        keys = sorted(
-            set.intersection(*(set(record["all_iterations"]) for record in records)),
-            key=int,
-        )
+        key_sets = [set(record["all_iterations"]) for record in records]
+        if any(keys != key_sets[0] for keys in key_sets[1:]):
+            raise ValueError(f"{name} iteration curves differ across seeds")
+        keys = sorted(key_sets[0], key=int)
         curves[name] = {}
         for key in keys:
             planner_macs = _one_int(
@@ -695,27 +1071,52 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
 
 
 def artifact_tables(summary: dict[str, Any], table_dir: Path) -> list[Path]:
-    primary_rows = []
+    primary_rows: list[dict[str, Any]] = []
     for name, method in summary["methods"].items():
         primary_rows.append(
             {
                 "method": name,
-                "sr_mean": method["overall"]["sr"]["mean"],
-                "sr_sd": method["overall"]["sr"]["std"],
-                "spl_mean": method["overall"]["spl"]["mean"],
-                "spl_sd": method["overall"]["spl"]["std"],
+                "overall_sr_mean": method["overall"]["sr"]["mean"],
+                "overall_sr_sd": method["overall"]["sr"]["std"],
+                "overall_spl_mean": method["overall"]["spl"]["mean"],
+                "overall_spl_sd": method["overall"]["spl"]["std"],
                 "seen_sr_mean": method["seen"]["sr"]["mean"],
+                "seen_sr_sd": method["seen"]["sr"]["std"],
+                "seen_spl_mean": method["seen"]["spl"]["mean"],
+                "seen_spl_sd": method["seen"]["spl"]["std"],
                 "ood_sr_mean": method["ood"]["sr"]["mean"],
+                "ood_sr_sd": method["ood"]["sr"]["std"],
+                "ood_spl_mean": method["ood"]["spl"]["mean"],
+                "ood_spl_sd": method["ood"]["spl"]["std"],
                 "invalid_rate_mean": method["failure_diagnostics"]["invalid_rate"][
                     "mean"
                 ],
+                "invalid_rate_sd": method["failure_diagnostics"]["invalid_rate"]["std"],
                 "loop_rate_mean": method["failure_diagnostics"]["loop_or_cycle_rate"][
                     "mean"
                 ],
-                "seeds": method["overall"]["sr"]["n"],
+                "loop_rate_sd": method["failure_diagnostics"]["loop_or_cycle_rate"][
+                    "std"
+                ],
+                "training_runs": method["overall"]["sr"]["n"],
             }
         )
-    effect_rows = []
+    size_rows: list[dict[str, Any]] = []
+    for name, method in summary["methods"].items():
+        for size, values in method["by_size"].items():
+            size_rows.append(
+                {
+                    "method": name,
+                    "maze_size": int(size),
+                    "split": "seen" if int(size) <= 21 else "ood",
+                    "n_per_training_run": values["n_per_seed"],
+                    "sr_mean": values["sr"]["mean"],
+                    "sr_sd": values["sr"]["std"],
+                    "spl_mean": values["spl"]["mean"],
+                    "spl_sd": values["spl"]["std"],
+                }
+            )
+    effect_rows: list[dict[str, Any]] = []
     for key, effect in summary["paired_effects"].items():
         effect_rows.append(
             {
@@ -731,7 +1132,49 @@ def artifact_tables(summary: dict[str, Any], table_dir: Path) -> list[Path]:
                 "claim_role": effect["claim_role"],
             }
         )
-    path_rows = []
+    assistance_rows: list[dict[str, Any]] = []
+    for name, value in summary["assistance_effects"].items():
+        sr = value["corrected_minus_unmasked_sr"]
+        spl = value["corrected_minus_unmasked_spl"]
+        rate = value["assisted_decision_rate"]
+        assistance_rows.append(
+            {
+                "method": name,
+                "delta_sr": sr["delta"],
+                "sr_ci_low": sr["ci_low"],
+                "sr_ci_high": sr["ci_high"],
+                "delta_spl": spl["delta"],
+                "spl_ci_low": spl["ci_low"],
+                "spl_ci_high": spl["ci_high"],
+                "assisted_decision_rate_mean": rate["mean"],
+                "assisted_decision_rate_sd": rate["std"],
+                "claim_role": "oracle_assistance_diagnostic",
+            }
+        )
+    development_rows: list[dict[str, Any]] = []
+    for name, value in summary["development_alignment"].items():
+        corrected_spl = value.get("corrected_spl", {})
+        development_rows.append(
+            {
+                "method": name,
+                "unmasked_sr_mean": value["unmasked_sr"]["mean"],
+                "unmasked_sr_sd": value["unmasked_sr"]["std"],
+                "corrected_sr_mean": value["corrected_sr"]["mean"],
+                "corrected_sr_sd": value["corrected_sr"]["std"],
+                "legacy_corrected_sr_anchor": value["legacy_corrected_sr_anchor"],
+                "corrected_sr_minus_anchor": value["corrected_sr_minus_legacy_anchor"],
+                "corrected_spl_mean": corrected_spl.get("mean", ""),
+                "corrected_spl_sd": corrected_spl.get("std", ""),
+                "legacy_corrected_spl_anchor": value.get(
+                    "legacy_corrected_spl_anchor", ""
+                ),
+                "corrected_spl_minus_anchor": value.get(
+                    "corrected_spl_minus_legacy_anchor", ""
+                ),
+                "used_for_model_selection": False,
+            }
+        )
+    path_rows: list[dict[str, Any]] = []
     for name, method in summary["methods"].items():
         for path_bin, values in method["by_shortest_path"].items():
             path_rows.append(
@@ -745,7 +1188,7 @@ def artifact_tables(summary: dict[str, Any], table_dir: Path) -> list[Path]:
                     "spl_sd": values["spl"]["std"],
                 }
             )
-    curve_rows = []
+    curve_rows: list[dict[str, Any]] = []
     for name, curve in summary["spatial_k_curves"].items():
         for iterations, values in curve.items():
             curve_rows.append(
@@ -759,7 +1202,7 @@ def artifact_tables(summary: dict[str, Any], table_dir: Path) -> list[Path]:
                     "conv_gmac_size25": values["conv_macs_size25"] / 1e9,
                 }
             )
-    compute_rows = []
+    compute_rows: list[dict[str, Any]] = []
     for name, method in summary["methods"].items():
         compute = method["compute"]
         compute_rows.append(
@@ -787,18 +1230,21 @@ def artifact_tables(summary: dict[str, Any], table_dir: Path) -> list[Path]:
                 ).get("mean", ""),
             }
         )
-    outputs = [
-        table_dir / "primary_results.csv",
-        table_dir / "paired_effects.csv",
-        table_dir / "path_length_generalization.csv",
-        table_dir / "spatial_k_curves.csv",
-        table_dir / "compute_summary.csv",
-    ]
-    for path, rows in zip(
-        outputs,
-        (primary_rows, effect_rows, path_rows, curve_rows, compute_rows),
-        strict=True,
-    ):
+    tables = {
+        "primary_results.csv": primary_rows,
+        "per_seed_results.csv": summary["per_seed_results"],
+        "size_generalization.csv": size_rows,
+        "path_length_generalization.csv": path_rows,
+        "paired_effects.csv": effect_rows,
+        "assistance_effects.csv": assistance_rows,
+        "development_alignment.csv": development_rows,
+        "spatial_k_curves.csv": curve_rows,
+        "compute_summary.csv": compute_rows,
+    }
+    if tuple(tables) != TABLE_FILENAMES:
+        raise RuntimeError("table artifact order differs from the closure schema")
+    outputs = [table_dir / name for name in TABLE_FILENAMES]
+    for path, rows in zip(outputs, tables.values(), strict=True):
         write_csv(path, rows)
     return outputs
 
@@ -839,6 +1285,18 @@ def paper_report(summary: dict[str, Any]) -> str:
             "examples seen, and optimization compute are intentionally not equalized, "
             "so differences do not isolate representation learning or sample "
             "efficiency."
+        ),
+        (
+            "The 128-step budget imposes an exact oracle ceiling of "
+            f"{summary['protocol']['confirmatory_oracle_ceiling']:.6f}: "
+            f"{summary['protocol']['confirmatory_step_cap_failures']} of 900 tasks "
+            "have shortest paths longer than the budget."
+        ),
+        (
+            "No prospective power calculation was used for this post-confirmatory "
+            "fixed addendum. Precision is communicated through effect sizes and "
+            "the prespecified bootstrap intervals; an interval crossing zero is "
+            "not evidence of equivalence."
         ),
         "",
         "## Primary unmasked results",
@@ -969,6 +1427,16 @@ def paper_report(summary: dict[str, Any]) -> str:
                 "equivalence."
             ),
             "",
+            "## Execution provenance",
+            "",
+            (
+                f"The closure contains {len(summary['rerun_records'])} recorded "
+                "formal-output replacement(s). Each replacement, if present, "
+                "retains its allowed objective reason and the SHA256 of every "
+                "superseded file. Missing outputs created after an interrupted "
+                "run are not replacements and are simply completed once."
+            ),
+            "",
             "## Closure decision",
             "",
             (
@@ -987,42 +1455,67 @@ def paper_report(summary: dict[str, Any]) -> str:
 def main() -> None:
     args = parse_args()
     config, lock = load_config(args.config)
+    if args.allow_dirty_worktree and not args.skip_figures:
+        raise ValueError(
+            "--allow-dirty-worktree may only be used with --skip-figures; "
+            "a closure gate always requires a clean worktree"
+        )
     require_study_open(config)
     require_clean_worktree(args.allow_dirty_worktree)
     summary_path = Path(config["paths"]["summary_json"])
     report_path = Path(config["paths"]["paper_report"])
     gate_path = Path(config["paths"]["closure_gate"])
+    table_dir = Path(config["paths"]["table_dir"])
+    table_paths_expected = [table_dir / name for name in TABLE_FILENAMES]
+    figure_dir = Path(config["paths"]["figure_dir"])
+    figure_paths_expected = [figure_dir / name for name in FIGURE_FILENAMES]
+    output_paths = [summary_path, report_path, *table_paths_expected]
+    if not args.skip_figures:
+        output_paths.extend([gate_path, *figure_paths_expected])
+    summary_rerun = prepare_rerun(
+        output_paths,
+        overwrite=args.overwrite,
+        reason=args.rerun_reason,
+    )
     require_new_output(summary_path, args.overwrite)
     require_new_output(report_path, args.overwrite)
     if not args.skip_figures:
         require_new_output(gate_path, args.overwrite)
-    table_dir = Path(config["paths"]["table_dir"])
-    for name in (
-        "primary_results.csv",
-        "paired_effects.csv",
-        "path_length_generalization.csv",
-        "spatial_k_curves.csv",
-        "compute_summary.csv",
-    ):
-        require_new_output(table_dir / name, args.overwrite)
+    for path in table_paths_expected:
+        require_new_output(path, args.overwrite)
     if not args.skip_figures:
-        figure_dir = Path(config["paths"]["figure_dir"])
-        for name in (
-            "primary_results.png",
-            "generalization_by_size.png",
-            "generalization_by_path_length.png",
-            "spatial_iteration_curve.png",
-            "spatial_compute_curve.png",
-        ):
-            require_new_output(figure_dir / name, args.overwrite)
+        for path in figure_paths_expected:
+            require_new_output(path, args.overwrite)
     seeds = [int(value) for value in config["seeds"]]
     confirmatory_entries = read_jsonl(config["paths"]["confirmatory_manifest"])
     development_entries = read_jsonl(config["paths"]["development_manifest"])
     audit_path = Path(config["paths"]["audit_output"])
     if not audit_path.exists():
         raise FileNotFoundError(f"missing required formal protocol audit: {audit_path}")
-    validate_protocol_audit(load_json(audit_path), config=config, lock=lock)
-    source_files: list[Path] = [audit_path]
+    audit_data = load_json(audit_path)
+    validate_protocol_audit(audit_data, config=config, lock=lock)
+    source_spatial = lock["source_spatial_experiment"]
+    source_spatial_config_path = Path(source_spatial["config_path"])
+    source_spatial_lock_path = Path(source_spatial["protocol_lock_path"])
+    source_spatial_config = load_json(source_spatial_config_path)
+    source_files: list[Path] = [
+        Path(args.config),
+        Path(config["paths"]["protocol_lock"]),
+        Path(config["paths"]["train_manifest"]),
+        Path(config["paths"]["development_manifest"]),
+        Path(config["paths"]["confirmatory_manifest"]),
+        audit_path,
+        source_spatial_config_path,
+        source_spatial_lock_path,
+    ]
+    rerun_records: list[dict[str, Any]] = []
+
+    def record_rerun(path: Path, value: Any) -> None:
+        record = validate_rerun_record(value, str(path))
+        if record is not None:
+            rerun_records.append({"source": str(path), **record})
+
+    record_rerun(audit_path, audit_data.get("metadata", {}).get("rerun"))
     primary_records: dict[str, list[dict[str, Any]]] = {}
     corrected_records: dict[str, list[dict[str, Any]]] = {}
     development_records: dict[str, dict[str, list[dict[str, Any]]]] = {}
@@ -1041,7 +1534,14 @@ def main() -> None:
             if not path.exists():
                 raise FileNotFoundError(f"missing locked spatial result: {path}")
             data = load_json(path)
-            record = validate_spatial_result(data, lock=lock, method=method, seed=seed)
+            record = validate_spatial_result(
+                data,
+                lock=lock,
+                method=method,
+                seed=seed,
+                entries=confirmatory_entries,
+                source_config=source_spatial_config,
+            )
             records.append(record)
             source_files.append(path)
             source_checkpoint = result_checkpoint_path(data["metadata"])
@@ -1098,6 +1598,7 @@ def main() -> None:
             )
             checkpoint_hashes.add(sha256_file(checkpoint_path))
             source_files.append(checkpoint_path)
+            record_rerun(checkpoint_path, checkpoint.get("rerun"))
             for split_role in ("development", "confirmatory"):
                 template = config["paths"][f"{split_role}_result_template"]
                 for action_selection in ("unmasked", "corrected"):
@@ -1137,6 +1638,7 @@ def main() -> None:
                     )
                     parameter_counts.add(int(data["metadata"]["parameter_count"]))
                     source_files.append(path)
+                    record_rerun(path, data["metadata"].get("rerun"))
                     if split_role == "confirmatory":
                         target = (
                             primary_records
@@ -1156,6 +1658,10 @@ def main() -> None:
             raise ValueError(f"{name} parameter counts differ across seeds")
     require_task_alignment(primary_records)
     require_task_alignment(corrected_records)
+    validate_action_protocol_consistency(
+        {name: primary_records[name] for name in corrected_records},
+        corrected_records,
+    )
     validate_records_against_manifest(primary_records, confirmatory_entries)
     validate_records_against_manifest(corrected_records, confirmatory_entries)
     require_task_alignment(
@@ -1181,6 +1687,16 @@ def main() -> None:
             for name, protocols in development_records.items()
         }
     )
+    validate_action_protocol_consistency(
+        {
+            name: protocols["unmasked"]
+            for name, protocols in development_records.items()
+        },
+        {
+            name: protocols["corrected"]
+            for name, protocols in development_records.items()
+        },
+    )
     for protocols in development_records.values():
         first = sorted(row["task_id"] for row in protocols["unmasked"][0]["task_rows"])
         second = sorted(
@@ -1193,26 +1709,48 @@ def main() -> None:
     }
     for name, records in primary_records.items():
         methods[name]["compute"] = summarize_compute(name, records, config)
+    analysis_runtime = environment_summary()
+    try:
+        analysis_runtime["matplotlib"] = importlib.metadata.version("matplotlib")
+    except importlib.metadata.PackageNotFoundError:
+        analysis_runtime["matplotlib"] = None
+    if summary_rerun is not None:
+        rerun_records.append({"source": str(summary_path), **summary_rerun})
     summary: dict[str, Any] = {
         "protocol": {
             "protocol_id": config["protocol_id"],
             "study_role": config["study_role"],
             "analysis_spec_sha256": analysis_spec_sha256(config, lock),
             "source_spatial_analysis_spec_sha256": next(iter(source_analysis_specs)),
+            "git_commit": git_commit(),
+            "git_dirty": git_worktree_dirty(),
+            "code_fingerprint": experiment_code_fingerprint(),
+            "analysis_runtime": analysis_runtime,
+            "formal_protocol_audit_sha256": sha256_file(audit_path),
             "seeds": seeds,
             "task_count_per_seed": 900,
+            "confirmatory_step_cap_failures": int(
+                lock["confirmatory_manifest"]["step_cap_failures"]
+            ),
+            "confirmatory_oracle_ceiling": float(
+                lock["confirmatory_manifest"]["expected_exact_oracle_sr"]
+            ),
             "primary_action_selection": "unmasked",
             "new_cross_family_claim_role": "secondary_fixed_addendum",
             "confirmatory_model_selection": False,
             "score_triggered_reruns": False,
+            "prospective_power_analysis": False,
+            "rerun": summary_rerun,
         },
         "methods": methods,
+        "per_seed_results": per_seed_results(primary_records),
         "paired_effects": paired_effects(primary_records, config),
         "assistance_effects": assistance_effects(
             primary_records, corrected_records, config
         ),
         "development_alignment": development_alignment(development_records, lock),
         "spatial_k_curves": spatial_k_curves(spatial_records),
+        "rerun_records": rerun_records,
         "source_file_count": len(set(source_files)),
         "closure_status": "complete_after_artifact_generation",
     }
@@ -1229,8 +1767,12 @@ def main() -> None:
     atomic_json_dump(summary_path, summary)
     if not args.skip_figures:
         gate = {
+            "format_version": 1,
             "protocol_id": config["protocol_id"],
             "status": "complete",
+            "analysis_spec_sha256": analysis_spec_sha256(config, lock),
+            "git_commit": git_commit(),
+            "code_fingerprint": experiment_code_fingerprint(),
             "completion_is_score_independent": True,
             "required_training_seeds": seeds,
             "required_tasks_per_seed": 900,
@@ -1238,18 +1780,18 @@ def main() -> None:
             "source_files": {
                 str(path): sha256_file(path) for path in sorted(set(source_files))
             },
+            "summary_path": str(summary_path),
             "summary_sha256": sha256_file(summary_path),
             "artifacts": summary["artifacts"],
-            "rerun_allowed_only_for": [
-                "interrupted_execution",
-                "missing_or_duplicate_task",
-                "manifest_checkpoint_or_code_hash_mismatch",
-                "non_finite_output",
-            ],
+            "rerun_records": rerun_records,
+            "rerun_allowed_only_for": list(RERUN_REASONS),
             "rerun_for_low_or_surprising_score": False,
             "next_architecture_search_authorized": False,
         }
         atomic_json_dump(gate_path, gate)
+        from final_closure.verify_closure import verify_closure_gate
+
+        verify_closure_gate(args.config)
     print(f"paper closure summary written to {summary_path}")
     if not args.skip_figures:
         print(f"score-independent closure gate written to {gate_path}")

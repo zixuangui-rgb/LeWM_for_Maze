@@ -2,7 +2,7 @@
   "schema_version": 1,
   "protocol_id": "maze-jepa-paper-closure-v1",
   "study_role": "post_confirmatory_fixed_baseline_addendum",
-  "analysis_spec_sha256": "43de02d2b7546136babd52cee199076181d5f755653679df39b64c5cf3890013",
+  "analysis_spec_sha256": "ffb21dc0e25b1d400ddfe1ff7c4df7b6b3460b891db87e09b9e4806ade92de30",
   "train_manifest": {
     "path": "data/splits/unisize_train_manifest.jsonl",
     "sha256": "1c477db243752a614d569941da6ca9be5c8fb19099295769c1c4dce9250a05f6",
@@ -36,6 +36,12 @@
     "format_version": 2,
     "git_commit": "0eca77209429d86c71768195ba654d560cf35633",
     "code_fingerprint": "95fc86a5551d74694480889c3d7ffe54fb998ed5f37d479b37d8c7e385144c5f",
+    "config_path": "spatial_jepa_planning/configs/default.json",
+    "config_sha256": "115b46fb3e8d115245b7060a31a6d37013185fffc313468dcc07df8b4c17e0fd",
+    "protocol_lock_path": "spatial_jepa_planning/configs/protocol_lock.json",
+    "protocol_lock_sha256": "da961bf8f27be29eaa2b3e9d65d60a8f41ccaed6accd9b918b6930dc10db6bd8",
+    "analysis_spec_sha256": "9122390bb83b21a682121c3716358064690e162648c31723e7a61cf52f45b7a4",
+    "evaluation_iterations": [4, 8, 16, 32, 64, 128, 256],
     "required_methods": {
       "r4_raw_iterative_progressive": 128,
       "j1_spatial_iterative_frozen": 128
