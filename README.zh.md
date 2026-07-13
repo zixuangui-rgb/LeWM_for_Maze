@@ -75,3 +75,5 @@ python -m pytest -q
 - [`diagnostics/`](diagnostics/)：在锁定的 topology hold-out 协议下诊断表征、metric、rollout 和导航失败。
 - [`planning_repair/`](planning_repair/)：P0-P2 修复矩阵。
 - [`spatial_jepa_planning/`](spatial_jepa_planning/)：下一阶段 full-resolution Spatial-JEPA 与迭代规划实验，包含 protocol lock、多 seed 配对评估和 oracle 对照。
+- [`final_closure/`](final_closure/)：固定的论文闭环基线、provenance 校验、统计分析与不可变 completion gate。
+- [`research_notes/pure_jepa_frontier_directions.zh.md`](research_notes/pure_jepa_frontier_directions.zh.md)：纯 JEPA 潜空间规划的性能上限与泛化边界研究备忘录；它是开放的研究思路，不是已经执行的实验或锁定协议。

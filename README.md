@@ -80,3 +80,9 @@ python -m pytest -q
 - [`spatial_jepa_planning/`](spatial_jepa_planning/) contains the next-stage
   full-resolution Spatial-JEPA and iterative-planning experiments, including
   protocol locks, multi-seed paired evaluation, and oracle controls.
+- [`final_closure/`](final_closure/) contains the fixed paper-closure baselines,
+  provenance checks, statistical analysis, and immutable completion gate.
+- [`research_notes/pure_jepa_frontier_directions.zh.md`](research_notes/pure_jepa_frontier_directions.zh.md)
+  is a Chinese research memo on open directions for the capability frontier and
+  generalization boundaries of pure JEPA latent planning. It is not an executed
+  experiment or a locked protocol.
