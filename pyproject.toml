@@ -22,7 +22,12 @@ dev = ["pre-commit>=3.7", "pytest>=8", "ruff>=0.8"]
 paper = ["matplotlib>=3.8"]
 
 [tool.setuptools.packages.find]
-include = ["hdwm*", "spatial_jepa_planning*", "final_closure*"]
+include = [
+    "hdwm*",
+    "spatial_jepa_planning*",
+    "final_closure*",
+    "vector_jepa_planner_frontier*",
+]
 
 [tool.ruff]
 line-length = 88

@@ -1,0 +1,8 @@
+{
+  "schema": "vector-jepa-effective-clause-v1",
+  "checkpoint_selection": "module_specific_validation_metric_at_fixed_intervals",
+  "track_j_selection": "validation_sr_and_jepa_loss_pareto_checkpoint",
+  "validation_role": "checkpoint_selection_and_calibration",
+  "unique_state_ratio": "unique_states_including_initial_state_divided_by_executed_steps",
+  "two_cycle_rate": "lag_two_matches_divided_by_max_executed_steps_minus_two_1"
+}
