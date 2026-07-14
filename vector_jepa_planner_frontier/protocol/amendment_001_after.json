@@ -1,0 +1,8 @@
+{
+  "schema": "vector-jepa-effective-clause-v1",
+  "checkpoint_selection": "final_optimizer_step_for_every_method_in_family",
+  "track_j_selection": "final_step_with_ten_percent_jepa_stability_admission_gate",
+  "validation_role": "calibration_advancement_and_stability_gate_without_checkpoint_selection",
+  "unique_state_ratio": "newly_discovered_states_excluding_initial_divided_by_max_executed_steps_1",
+  "two_cycle_rate": "lag_two_matches_divided_by_max_eligible_lag_two_positions_1"
+}

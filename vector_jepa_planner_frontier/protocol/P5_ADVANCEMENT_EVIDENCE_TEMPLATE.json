@@ -1,0 +1,76 @@
+{
+  "schema": "vector-jepa-p5-evidence-v1",
+  "reviewer": "",
+  "validation_results_viewed": true,
+  "confirmatory_results_viewed": false,
+  "selected_components": [],
+  "selected_radical": null,
+  "component_gates": {
+    "verifier": {
+      "mechanism_improved": false,
+      "overall_noninferiority": false,
+      "large_maze_noninferiority": false,
+      "equal_compute": false,
+      "negative_control_passed": false,
+      "direction_consistency_passed": false,
+      "evidence": ""
+    },
+    "reachability": {
+      "mechanism_improved": false,
+      "overall_noninferiority": false,
+      "large_maze_noninferiority": false,
+      "equal_compute": false,
+      "negative_control_passed": false,
+      "direction_consistency_passed": false,
+      "evidence": ""
+    },
+    "proposal": {
+      "mechanism_improved": false,
+      "overall_noninferiority": false,
+      "large_maze_noninferiority": false,
+      "equal_compute": false,
+      "negative_control_passed": false,
+      "direction_consistency_passed": false,
+      "evidence": ""
+    },
+    "memory": {
+      "mechanism_improved": false,
+      "overall_noninferiority": false,
+      "large_maze_noninferiority": false,
+      "equal_compute": false,
+      "negative_control_passed": false,
+      "direction_consistency_passed": false,
+      "evidence": ""
+    }
+  },
+  "radical_gates": {
+    "vector_dts": {
+      "mechanism_improved": false,
+      "overall_noninferiority": false,
+      "large_maze_noninferiority": false,
+      "equal_compute": false,
+      "negative_control_passed": false,
+      "direction_consistency_passed": false,
+      "evidence": ""
+    },
+    "bidirectional": {
+      "mechanism_improved": false,
+      "overall_noninferiority": false,
+      "large_maze_noninferiority": false,
+      "equal_compute": false,
+      "negative_control_passed": false,
+      "direction_consistency_passed": false,
+      "evidence": ""
+    },
+    "denoising": {
+      "mechanism_improved": false,
+      "overall_noninferiority": false,
+      "large_maze_noninferiority": false,
+      "equal_compute": false,
+      "negative_control_passed": false,
+      "direction_consistency_passed": false,
+      "evidence": ""
+    }
+  },
+  "radical_decision_reason": ""
+}

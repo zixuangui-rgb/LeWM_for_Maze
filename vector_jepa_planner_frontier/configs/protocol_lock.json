@@ -1,0 +1,139 @@
+{
+  "amendment_after": {
+    "path": "vector_jepa_planner_frontier/protocol/amendment_001_after.json",
+    "sha256": "2a6a9434f64dc0a0fc0b887e87483ae48a154ba7f0d4e9ef745ddd2ce64e3f58"
+  },
+  "amendment_before": {
+    "path": "vector_jepa_planner_frontier/protocol/amendment_001_before.json",
+    "sha256": "e101a646bd5c61be4d35deabf8614a8bec3ab3925233cbd768ea0e3ee00490aa"
+  },
+  "amendment_document": {
+    "path": "vector_jepa_planner_frontier/protocol/IMPLEMENTATION_AMENDMENT_001.md",
+    "sha256": "3f457262a8830b931ca498147f3a0e6cba2affc500cc49cc86142ae603661469"
+  },
+  "amendments": {
+    "path": "vector_jepa_planner_frontier/protocol/amendments.jsonl",
+    "sha256": "fa7fea4e4d23566cf0bc880683d7361824bb28bec23bcf2be79fae7c993dd4ff"
+  },
+  "analysis_spec_sha256": "a0c97491b4957a066fe221ae2a688fe59a8bfef3596a08ffca50b87dbc5ee331",
+  "code_fingerprint": "c0ac67d874251d8efbdd794771310eae2ddef20be92c2d16f8ec6499d7d7b07c",
+  "confirmation_opened": false,
+  "confirmatory_manifest": {
+    "count": 900,
+    "counts_by_size": {
+      "11": 100,
+      "13": 100,
+      "15": 100,
+      "17": 100,
+      "19": 100,
+      "21": 100,
+      "23": 100,
+      "25": 100,
+      "9": 100
+    },
+    "path": "data/splits/vector_jepa_frontier_confirmatory.jsonl",
+    "sha256": "125fb8b964413c93b95601eb18f6907a6fb50dea875b823691fcaa398def6775"
+  },
+  "development_manifest": {
+    "count": 900,
+    "counts_by_size": {
+      "11": 100,
+      "13": 100,
+      "15": 100,
+      "17": 100,
+      "19": 100,
+      "21": 100,
+      "23": 100,
+      "25": 100,
+      "9": 100
+    },
+    "path": "data/splits/unisize_eval_manifest.jsonl",
+    "sha256": "210e2de5aa5d9a688ff2fe60c4e8b85e11fa10b570d0ca3f4e72d8f173dbb8d9"
+  },
+  "environment_lock": {
+    "path": "uv.lock",
+    "sha256": "80fcccf03c4e920b096be5205fb29fb408acdcc0a8d9cc3da9c77d405c8d984d"
+  },
+  "method_config": {
+    "path": "vector_jepa_planner_frontier/configs/default.json",
+    "sha256": "e5ff688e597eb4b638e7c90fe6b888eadbd6dd57206b2a164eeea7880eb210d6"
+  },
+  "planner_seeds": [
+    104729,
+    130363
+  ],
+  "primary_hypotheses": [
+    "H1",
+    "H2"
+  ],
+  "protocol_document": {
+    "path": "vector_jepa_planner_frontier/EXPERIMENT_PROTOCOL.md",
+    "sha256": "3fdbcec995f8d7c79a86fa98bdf96fc8f2f5ec75e58b9c49237903f97bc36a47"
+  },
+  "protocol_id": "vector-jepa-planner-frontier-v1",
+  "protocol_version": "1.0",
+  "schema_version": 1,
+  "search_seeds": [
+    155921,
+    196613
+  ],
+  "source_baseline": {
+    "config_path": "final_closure/configs/default.json",
+    "config_sha256": "221b797f6c49b4fa4c880a5a2fa483583d004451f41d6a642a5bd2e2b00b95d9",
+    "lock_path": "final_closure/configs/protocol_lock.json",
+    "lock_sha256": "2e6aa394dfa289556bc6161fdb4a98a3fe70050844305a9876016450f70c1d44",
+    "name": "lewm_l2_cem_seqlen2"
+  },
+  "status": "locked",
+  "study_role": "preregistered_planner_frontier",
+  "train_manifest": {
+    "count": 2800,
+    "counts_by_size": {
+      "11": 400,
+      "13": 400,
+      "15": 400,
+      "17": 400,
+      "19": 400,
+      "21": 400,
+      "9": 400
+    },
+    "path": "data/splits/unisize_train_manifest.jsonl",
+    "sha256": "1c477db243752a614d569941da6ca9be5c8fb19099295769c1c4dce9250a05f6"
+  },
+  "training_seeds": [
+    42,
+    43,
+    44,
+    45,
+    46,
+    47,
+    48,
+    49,
+    50,
+    51,
+    52,
+    53,
+    54,
+    55,
+    56,
+    57,
+    58,
+    59,
+    60,
+    61
+  ],
+  "validation_manifest": {
+    "count": 700,
+    "counts_by_size": {
+      "11": 100,
+      "13": 100,
+      "15": 100,
+      "17": 100,
+      "19": 100,
+      "21": 100,
+      "9": 100
+    },
+    "path": "data/splits/vector_jepa_frontier_validation.jsonl",
+    "sha256": "3a8ae8392ad84c7e0c23bd91e7fdfccb50ad507d29edcd3f4dc0c7fbdb2eaea8"
+  }
+}
