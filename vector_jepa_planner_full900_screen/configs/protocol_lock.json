@@ -1,0 +1,159 @@
+{
+  "amendment_after": {
+    "path": "vector_jepa_planner_full900_screen/protocol/frozen_design.json",
+    "sha256": "48ccbed217b57de211c37f5f83bb823119bd3323af0f5fa822f8745fdb6492ca"
+  },
+  "amendment_before": {
+    "path": "vector_jepa_planner_full900_screen/protocol/initial_design.json",
+    "sha256": "6c9edd1dae286a78305955fd160463283cf887b42417a190825be2b5e699ffb2"
+  },
+  "amendment_document": {
+    "path": "vector_jepa_planner_full900_screen/PROTOCOL_HISTORY.md",
+    "sha256": "799610959c42cae9c33fba8a20a4a558861f692ba867fc44610ec68846247ae4"
+  },
+  "amendments": {
+    "path": "vector_jepa_planner_full900_screen/protocol/amendments.jsonl",
+    "sha256": "74c2ce81f8a482a2af35f7087deacfbfdee5c690a4b671c099acf303cb6a5e3f"
+  },
+  "analysis_spec_sha256": "f4ff3770204e89c0ba05782eb3d1ec5e2d293c1a3d8469b1678dd10c872824ae",
+  "claims_document": {
+    "path": "vector_jepa_planner_full900_screen/CLAIMS_AND_STOP_RULES.md",
+    "sha256": "1de61a93696b12ac1a931883a43a746bdc21ee03259671f0c196ffea3f879855"
+  },
+  "code_fingerprint": "8533e2c8863ec6fa06c4e1af09fd92c06731b0a1e116cacef24610c61691ffe9",
+  "compatibility_document": {
+    "path": "vector_jepa_planner_full900_screen/COMPATIBILITY.md",
+    "sha256": "97e7969dde3c6111da560c5515d9e3e27d9f31b781e85968ba4ffc72c677a6cf"
+  },
+  "confirmatory_manifest": {
+    "count": 900,
+    "path": "data/splits/vector_jepa_frontier_confirmatory.jsonl",
+    "sha256": "125fb8b964413c93b95601eb18f6907a6fb50dea875b823691fcaa398def6775",
+    "size_counts": {
+      "11": 100,
+      "13": 100,
+      "15": 100,
+      "17": 100,
+      "19": 100,
+      "21": 100,
+      "23": 100,
+      "25": 100,
+      "9": 100
+    },
+    "unique_layout_hashes": 900,
+    "unique_task_hashes": 900,
+    "unique_topologies": 900
+  },
+  "development_manifest": {
+    "count": 900,
+    "path": "data/splits/unisize_eval_manifest.jsonl",
+    "sha256": "210e2de5aa5d9a688ff2fe60c4e8b85e11fa10b570d0ca3f4e72d8f173dbb8d9",
+    "size_counts": {
+      "11": 100,
+      "13": 100,
+      "15": 100,
+      "17": 100,
+      "19": 100,
+      "21": 100,
+      "23": 100,
+      "25": 100,
+      "9": 100
+    },
+    "unique_layout_hashes": 900,
+    "unique_task_hashes": 900,
+    "unique_topologies": 900
+  },
+  "environment_lock": {
+    "path": "uv.lock",
+    "sha256": "80fcccf03c4e920b096be5205fb29fb408acdcc0a8d9cc3da9c77d405c8d984d"
+  },
+  "environment_spec": {
+    "path": "pyproject.toml",
+    "sha256": "82d82bc77e52e6c9363f34681b22251d29b602bb3032ad92820a7f64cbb953af"
+  },
+  "handoff_document": {
+    "path": "vector_jepa_planner_full900_screen/HANDOFF_CHECKLIST.md",
+    "sha256": "5c9d69dc4f5115474999ce18728cd69a24ac0bd198709d1feda8128e620c28f1"
+  },
+  "implementation_audit_document": {
+    "path": "vector_jepa_planner_full900_screen/IMPLEMENTATION_AUDIT.md",
+    "sha256": "aa6c56512fa5ada8bb2efaee07d61ee6f30be8ff83ba1d427b177b534bea93d2"
+  },
+  "method_config": {
+    "path": "vector_jepa_planner_full900_screen/configs/default.json",
+    "sha256": "5251dcaf94c1ce40e21c44faec19481c4a76fc00b05e1875c7a8f24c462fbaec"
+  },
+  "methods_document": {
+    "path": "vector_jepa_planner_full900_screen/METHODS.md",
+    "sha256": "e2a62da44e6214fd68186ee55e16e0835086c4b1f04881837ce98eb4554471ea"
+  },
+  "protocol_document": {
+    "path": "vector_jepa_planner_full900_screen/EXPERIMENT_PROTOCOL.md",
+    "sha256": "4b92edd4bc2eb541a8df1db77c3ef24125fc027016f888070d16980bea0b0601"
+  },
+  "protocol_id": "vector-jepa-planner-full900-screen-v1",
+  "quick_spec_sha256": "16ff92f07a1357a48182cd917d2322ea7ffb7c004be9ca06a67277f51cd96c2e",
+  "readme_document": {
+    "path": "vector_jepa_planner_full900_screen/README.md",
+    "sha256": "113ba3ed264120088440456d15e264c21ae5ff30cf6e5a8b1d3e76a8167512c2"
+  },
+  "result_schema_document": {
+    "path": "vector_jepa_planner_full900_screen/RESULT_SCHEMA.md",
+    "sha256": "6920ec86238e5cc7ab141e68d9a202e7bfc9a8ba33fffd45c199f964affbf62d"
+  },
+  "runbook_document": {
+    "path": "vector_jepa_planner_full900_screen/ENGINEER_RUNBOOK.md",
+    "sha256": "fc229fcd7fa28976b53f887bc81e75b52778ed0b94c2297d50c5c59213f8e959"
+  },
+  "schema": "vector-jepa-full900-screen-lock-v1",
+  "source_baseline": {
+    "config_path": "final_closure/configs/default.json",
+    "config_sha256": "221b797f6c49b4fa4c880a5a2fa483583d004451f41d6a642a5bd2e2b00b95d9",
+    "lock_path": "final_closure/configs/protocol_lock.json",
+    "lock_sha256": "2e6aa394dfa289556bc6161fdb4a98a3fe70050844305a9876016450f70c1d44",
+    "name": "lewm_l2_cem_seqlen2"
+  },
+  "status": "locked",
+  "test_suite": {
+    "path": "tests/test_vector_jepa_planner_full900_screen.py",
+    "sha256": "c4ae7928340fbeb266f53f2266c3f97a85d076946ceb25cc2c36abc504c85009"
+  },
+  "train_manifest": {
+    "count": 2800,
+    "path": "data/splits/unisize_train_manifest.jsonl",
+    "sha256": "1c477db243752a614d569941da6ca9be5c8fb19099295769c1c4dce9250a05f6",
+    "size_counts": {
+      "11": 400,
+      "13": 400,
+      "15": 400,
+      "17": 400,
+      "19": 400,
+      "21": 400,
+      "9": 400
+    },
+    "unique_layout_hashes": 2800,
+    "unique_task_hashes": 2800,
+    "unique_topologies": 2800
+  },
+  "validation_document": {
+    "path": "vector_jepa_planner_full900_screen/VALIDATION.md",
+    "sha256": "88a0039a4f5be674da7a5e8b0ad7e9d26a40f77c4982d9dbaa317c47f579c13b"
+  },
+  "validation_manifest": {
+    "count": 700,
+    "path": "data/splits/vector_jepa_frontier_validation.jsonl",
+    "sha256": "3a8ae8392ad84c7e0c23bd91e7fdfccb50ad507d29edcd3f4dc0c7fbdb2eaea8",
+    "size_counts": {
+      "11": 100,
+      "13": 100,
+      "15": 100,
+      "17": 100,
+      "19": 100,
+      "21": 100,
+      "9": 100
+    },
+    "unique_layout_hashes": 700,
+    "unique_task_hashes": 700,
+    "unique_topologies": 700
+  }
+}

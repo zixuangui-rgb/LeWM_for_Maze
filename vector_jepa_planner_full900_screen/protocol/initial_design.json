@@ -1,0 +1,7 @@
+{
+  "schema": "vector-jepa-full900-screen-design-v1",
+  "status": "initial",
+  "new_candidate_families": 12,
+  "full_task_count_per_evaluation": 900,
+  "adaptive_seed_escalation": [1, 3, 10]
+}
