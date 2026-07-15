@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import platform
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +48,21 @@ def load_json(path: str | Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError(f"expected a JSON object: {path}")
     return value
+
+
+def atomic_text_dump(path: str | Path, value: str) -> None:
+    output = resolve_path(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    handle, temporary_name = tempfile.mkstemp(
+        dir=output.parent, prefix=f".{output.name}.", suffix=".tmp"
+    )
+    os.close(handle)
+    temporary = Path(temporary_name)
+    try:
+        temporary.write_text(value, encoding="utf-8")
+        temporary.replace(output)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def load_config(path: str | Path) -> QuickStudyConfig:
@@ -106,6 +123,7 @@ def code_fingerprint() -> str:
             ROOT / "spatial_jepa_planning/common.py",
             ROOT / "scripts/train/train_dim256.py",
             ROOT / "pyproject.toml",
+            ROOT / "uv.lock",
         ]
     )
     digest = hashlib.sha256()
@@ -171,6 +189,7 @@ def validate_lock(config: QuickStudyConfig, lock: dict[str, Any]) -> None:
         "validation_document",
         "test_suite",
         "method_config",
+        "environment_spec",
         "environment_lock",
     )
     for key in records:
@@ -307,6 +326,7 @@ __all__ = [
     "ROOT",
     "analysis_spec_sha256",
     "atomic_json_dump",
+    "atomic_text_dump",
     "code_fingerprint",
     "component_checkpoint_path",
     "load_config",

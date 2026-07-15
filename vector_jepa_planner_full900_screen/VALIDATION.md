@@ -5,16 +5,22 @@
 - Pydantic拒绝缺失方法族、错误seed schedule、非1x预算、Track J和rollout drift；
 - 方法角色与可执行method一一对应；
 - Q1候选相对bridge只允许search planner变化；
-- Q2B/Q2C匹配控制只允许预声明字段变化；
-- train/development/validation/confirmatory task与topology零重叠；
-- full-900每个尺寸100任务；
+- Q2B/Q2C匹配控制只允许预声明的叶子字段变化；
+- DTS learned/uniform/direct和Bidirectional/forward的共享head、非计时训练摘要、
+  校准指标及数据来源必须exact match；该门槛在seed42、3-backbone和最终汇总重验；
+- train/development/validation/confirmatory在topology/layout/task三层零重叠；
+- 四个manifest均检查尺寸计数、缺失hash和内部重复；
 - B0 controller、rollout、CEM和corrected fallback已有数值单元对照；
 - stage schedule、selection hash、checkpoint training spec和result metadata闭合；
 - 预算、非有限值、task count和task hash在评测时检查；
 - 最终统计先在backbone内平均planner seeds，再按backbone x task交叉结构重采样；
-- seed42筛选的48项系统/机制比较使用固定Bonferroni同时区间；
-- Q0除结果字段外还逐步核对实际执行动作；
-- decision artifact绑定Q0 parity、所有输入result及上游decision哈希。
+- seed42筛选的48项系统/机制比较使用固定Bonferroni区间，经验bootstrap分布精确
+  枚举，不依赖20,000次模拟的极端尾部；
+- Q0核对规范输入路径、当前source checkpoint、manifest任务顺序、完整结果字段和逐步
+  实际执行动作；
+- decision artifact绑定Q0 parity、所有输入result及上游decision哈希；
+- final report同时输出mean/SD、逐尺寸SR、失败指标、assistance和每decision compute；
+- `pyproject.toml`与`uv.lock`均进入锁和代码指纹。
 
 ## 必须运行的命令
 

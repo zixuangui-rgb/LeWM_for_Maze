@@ -21,7 +21,7 @@ from vector_jepa_planner_full900_screen.common import (
     validate_lock,
 )
 from vector_jepa_planner_full900_screen.methods import validate_q1_selection
-from vector_jepa_planner_full900_screen.parity import validate_q0_gate
+from vector_jepa_planner_full900_screen.parity import PARITY_FIELDS, validate_q0_gate
 
 
 def parse_args() -> argparse.Namespace:
@@ -34,16 +34,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def _assert_bridge_parity(left: dict, right: dict) -> None:
-    fields = (
-        "task_id",
-        "success",
-        "path_length",
-        "invalid_actions",
-        "loop_or_cycle",
-        "final_bfs_distance",
-    )
     for left_row, right_row in zip(left["tasks"], right["tasks"], strict=True):
-        if any(left_row.get(field) != right_row.get(field) for field in fields):
+        if any(left_row.get(field) != right_row.get(field) for field in PARITY_FIELDS):
             raise ValueError("instrumented categorical-CEM bridge diverged from B0")
         left_actions = [
             int(trace["executed_action"]) for trace in left_row["decision_traces"]

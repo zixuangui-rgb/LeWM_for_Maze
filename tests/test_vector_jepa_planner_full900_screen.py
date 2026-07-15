@@ -4,17 +4,22 @@ import json
 from collections import Counter
 from pathlib import Path
 
+import numpy as np
 import pytest
+import torch
 
-from final_closure.common import read_jsonl, sha256_file
-from vector_jepa_planner_frontier.common import method_by_name
+from final_closure.common import bfs_distances_from, next_state, read_jsonl, sha256_file
+from spatial_jepa_planning.common import validate_manifest_entry
+from vector_jepa_planner_frontier.common import ComputeLedger, method_by_name
+from vector_jepa_planner_frontier.counterexamples import execute_candidate, mining_fold
 from vector_jepa_planner_frontier.heads import required_head_names
 from vector_jepa_planner_frontier.schemas import PlannerKind
 from vector_jepa_planner_full900_screen.analysis import (
     delta_sr,
+    exact_stratified_paired_bootstrap,
     stratified_paired_bootstrap,
 )
-from vector_jepa_planner_full900_screen.audit_protocol import _field_differences
+from vector_jepa_planner_full900_screen.audit_protocol import _leaf_differences
 from vector_jepa_planner_full900_screen.common import (
     component_checkpoint_path,
     load_config,
@@ -22,20 +27,26 @@ from vector_jepa_planner_full900_screen.common import (
     result_path,
     validate_lock,
 )
+from vector_jepa_planner_full900_screen.counterexamples import _validate_dataset
 from vector_jepa_planner_full900_screen.evaluate import _validate_budget
+from vector_jepa_planner_full900_screen.freeze_q1 import _assert_bridge_parity
+from vector_jepa_planner_full900_screen.lock_protocol import build_lock
 from vector_jepa_planner_full900_screen.methods import (
+    COMPONENT_PARITY_GROUPS,
+    component_parity_audits,
     direct_control_name,
     effective_method,
+    validate_component_parity,
     validate_q1_selection,
 )
-from vector_jepa_planner_full900_screen.parity import compare
+from vector_jepa_planner_full900_screen.parity import PARITY_FIELDS, compare
 from vector_jepa_planner_full900_screen.run_plan import (
     _q0_jobs,
     schedule_text,
     stage_jobs,
 )
 from vector_jepa_planner_full900_screen.schemas import QuickStudyConfig
-from vector_jepa_planner_full900_screen.summarize import _nested_bootstrap
+from vector_jepa_planner_full900_screen.summarize import _aggregate, _nested_bootstrap
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = ROOT / "vector_jepa_planner_full900_screen/configs/default.json"
@@ -55,6 +66,27 @@ def with_temp_decisions(base: QuickStudyConfig, tmp_path: Path) -> QuickStudyCon
                 "{split}_{action_selection}.json"
             ),
             "schedule_dir": tmp_path / "runs/schedules",
+            "component_training_template": str(
+                tmp_path
+                / (
+                    "checkpoints/{method}_backbone{backbone_seed}_"
+                    "planner{planner_seed}_train.pt"
+                )
+            ),
+            "component_checkpoint_template": str(
+                tmp_path
+                / (
+                    "checkpoints/{method}_backbone{backbone_seed}_"
+                    "planner{planner_seed}_calibrated.pt"
+                )
+            ),
+            "counterexample_round_template": str(
+                tmp_path
+                / (
+                    "checkpoints/{method}_backbone{backbone_seed}_"
+                    "planner{planner_seed}_round{round}.pt"
+                )
+            ),
             "p2_selection": tmp_path / "runs/decisions/q1_parent.json",
             "p5_advancement": tmp_path / "runs/decisions/shortlist.json",
             "p7_selection": tmp_path / "runs/decisions/final.json",
@@ -67,6 +99,54 @@ def with_temp_decisions(base: QuickStudyConfig, tmp_path: Path) -> QuickStudyCon
 def write_json(path: Path, value: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value), encoding="utf-8")
+
+
+def write_component_parity_checkpoints(
+    study: QuickStudyConfig,
+    *,
+    backbone_seeds: tuple[int, ...],
+    planner_seeds: tuple[int, ...] = (104_729,),
+) -> None:
+    for group_index, names in enumerate(COMPONENT_PARITY_GROUPS.values()):
+        for backbone_seed in backbone_seeds:
+            for planner_seed in planner_seeds:
+                for name in names:
+                    method = method_by_name(study, name)
+                    path = component_checkpoint_path(
+                        study,
+                        method,
+                        backbone_seed=backbone_seed,
+                        planner_seed=planner_seed,
+                    )
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    torch.save(
+                        {
+                            "stage": "component_calibration",
+                            "method_name": name,
+                            "backbone_seed": backbone_seed,
+                            "planner_seed": planner_seed,
+                            "source_checkpoint_sha256": f"source-{backbone_seed}",
+                            "train_manifest_sha256": "train",
+                            "validation_manifest_sha256": "validation",
+                            "head_config": {"group": group_index},
+                            "head_state_dicts": {
+                                "head": {
+                                    "weight": torch.tensor(
+                                        [group_index, backbone_seed, planner_seed],
+                                        dtype=torch.float32,
+                                    )
+                                }
+                            },
+                            "training_summary": {
+                                "loss": 0.5,
+                                "elapsed_seconds": float(group_index + 1),
+                            },
+                            "validation_metrics": {"accuracy": 0.75},
+                            "initialization_parent": None,
+                            "joint_counterexample_provenance": [],
+                        },
+                        path,
+                    )
 
 
 def write_q0_parity(study: QuickStudyConfig) -> None:
@@ -92,12 +172,15 @@ def write_q0_parity(study: QuickStudyConfig) -> None:
         write_json(
             Path(study.paths.run_root) / "parity" / f"parity_{action}.json",
             {
+                "schema": "vector-jepa-full900-b0-parity-v1",
                 "status": "pass",
                 "task_count": 900,
+                "compared_fields": list(PARITY_FIELDS),
                 "protocol_id": study.protocol_id,
                 "quick_spec_sha256": "quick",
                 "action_selection": action,
                 "executed_actions_compared": True,
+                "mismatch_count": 0,
                 "reference_sha256": sha256_file(reference_path),
                 "candidate_sha256": sha256_file(candidate_path),
             },
@@ -137,6 +220,18 @@ def write_q1_selection(
             )
             write_json(path, {"method": name, "action": action})
             inputs[f"{name}:{action}"] = sha256_file(path)
+    ranked_names = [selected]
+    ranked_names.extend(
+        name
+        for name in (
+            "q1_control_categorical_cem_1x",
+            "q1_icem_1x",
+            "q1_beam_1x",
+            "q1_best_first_1x",
+            "q1_mcts_1x",
+        )
+        if name != selected
+    )
     write_json(
         Path(study.paths.p2_selection),
         {
@@ -147,14 +242,14 @@ def write_q1_selection(
             "selected_parent": selected,
             "categorical_bridge_exact_task_parity": True,
             "ranked_candidates": [
-                {"method": name}
-                for name in (
-                    "q1_control_categorical_cem_1x",
-                    "q1_icem_1x",
-                    "q1_beam_1x",
-                    "q1_best_first_1x",
-                    "q1_mcts_1x",
-                )
+                {
+                    "method": name,
+                    "corrected_sr": 1.0 - index * 0.1,
+                    "corrected_ood_sr": 1.0 - index * 0.1,
+                    "unmasked_sr": 1.0 - index * 0.1,
+                    "planner_forward_calls_per_decision": float(index + 1),
+                }
+                for index, name in enumerate(ranked_names)
             ],
             "input_sha256s": inputs,
         },
@@ -163,18 +258,28 @@ def write_q1_selection(
 
 def write_shortlist(study: QuickStudyConfig, names: list[str] | None = None) -> None:
     names = names or ["q2b_denoising_icem"]
-    method_name = names[0]
-    method = method_by_name(study, method_name)
-    planner_seed = 104_729 if method.component_checkpoint_required else 0
-    path = result_path(
-        study,
-        method=method_name,
-        backbone_seed=42,
-        planner_seed=planner_seed,
-        action_selection="corrected_v1",
-    )
-    write_json(path, {"method": method_name})
+    write_component_parity_checkpoints(study, backbone_seeds=(42,))
     eligible = [role.name for role in study.method_roles if role.advancement_eligible]
+    lock = {"quick_spec_sha256": "quick"}
+    required_methods = {"b0_legacy_l2_cem"}
+    for name in eligible:
+        method = effective_method(study, lock, name)
+        required_methods.add(method.name)
+        required_methods.add(direct_control_name(study, lock, method.name))
+    inputs = {}
+    for method_name in required_methods:
+        method = effective_method(study, lock, method_name)
+        planner_seed = 104_729 if method.component_checkpoint_required else 0
+        for action in study.replication.action_selections:
+            path = result_path(
+                study,
+                method=method_name,
+                backbone_seed=42,
+                planner_seed=planner_seed,
+                action_selection=action,
+            )
+            write_json(path, {"method": method_name, "action": action})
+            inputs[f"{method_name}:b42:p{planner_seed}:{action}"] = sha256_file(path)
     write_json(
         Path(study.paths.p5_advancement),
         {
@@ -184,24 +289,45 @@ def write_shortlist(study: QuickStudyConfig, names: list[str] | None = None) -> 
             "q1_parent_sha256": sha256_file(study.paths.p2_selection),
             "shortlist": names,
             "candidate_audits": [{"method": name} for name in eligible],
-            "input_sha256s": {
-                f"{method_name}:b42:p{planner_seed}:corrected_v1": sha256_file(path)
-            },
+            "component_parity_audits": component_parity_audits(
+                study,
+                candidates=("q2b_vector_dts", "q2b_bidirectional"),
+                backbone_seeds=(42,),
+                planner_seeds=(104_729,),
+                include_dts_secondary_control=True,
+            ),
+            "input_sha256s": inputs,
         },
     )
 
 
 def write_final_selection(study: QuickStudyConfig, winner: str) -> None:
-    method = method_by_name(study, winner)
-    planner_seed = 104_729 if method.component_checkpoint_required else 0
-    path = result_path(
+    lock = {"quick_spec_sha256": "quick"}
+    write_component_parity_checkpoints(
         study,
-        method=winner,
-        backbone_seed=42,
-        planner_seed=planner_seed,
-        action_selection="unmasked",
+        backbone_seeds=study.replication.expansion_backbone_seeds,
     )
-    write_json(path, {"method": winner})
+    required_methods = {
+        "b0_legacy_l2_cem",
+        winner,
+        direct_control_name(study, lock, winner),
+    }
+    inputs = {}
+    for method_name in required_methods:
+        method = effective_method(study, lock, method_name)
+        planner_seed = 104_729 if method.component_checkpoint_required else 0
+        for backbone_seed in study.replication.expansion_backbone_seeds:
+            for action in study.replication.action_selections:
+                path = result_path(
+                    study,
+                    method=method_name,
+                    backbone_seed=backbone_seed,
+                    planner_seed=planner_seed,
+                    action_selection=action,
+                )
+                write_json(path, {"method": method_name, "action": action})
+                key = f"{method_name}:b{backbone_seed}:p{planner_seed}:{action}"
+                inputs[key] = sha256_file(path)
     write_json(
         Path(study.paths.p7_selection),
         {
@@ -211,9 +337,13 @@ def write_final_selection(study: QuickStudyConfig, winner: str) -> None:
             "shortlist_sha256": sha256_file(study.paths.p5_advancement),
             "winner": winner,
             "candidate_audits": [{"method": winner}],
-            "input_sha256s": {
-                f"{winner}:b42:p{planner_seed}:unmasked": sha256_file(path)
-            },
+            "component_parity_audits": component_parity_audits(
+                study,
+                candidates=(winner,),
+                backbone_seeds=study.replication.expansion_backbone_seeds,
+                planner_seeds=(104_729,),
+            ),
+            "input_sha256s": inputs,
         },
     )
 
@@ -259,9 +389,9 @@ def fake_parity_rows() -> list[dict]:
     ]
 
 
-def test_config_locks_twelve_candidates_and_eighteen_executable_methods() -> None:
+def test_config_locks_twelve_candidates_and_nineteen_executable_methods() -> None:
     study = config()
-    assert len(study.methods) == 18
+    assert len(study.methods) == 19
     assert sum(role.advancement_eligible for role in study.method_roles) == 12
     assert study.replication.task_count == 900
     assert study.replication.final_backbone_seeds == tuple(range(42, 52))
@@ -309,36 +439,112 @@ def test_q1_candidates_change_only_name_and_planner() -> None:
     study = config()
     bridge = method_by_name(study, "q1_control_categorical_cem_1x")
     for name in ("q1_icem_1x", "q1_beam_1x", "q1_best_first_1x", "q1_mcts_1x"):
-        assert _field_differences(bridge, method_by_name(study, name)) == {
+        assert _leaf_differences(bridge, method_by_name(study, name)) == {
             "name",
-            "planner",
+            "planner.kind",
         }
 
 
 def test_radical_and_ranker_controls_change_only_declared_fields() -> None:
     study = config()
     expected = {
-        ("q2b_vector_dts", "q2b_control_dts_direct"): {"name", "control"},
+        (
+            "q2b_vector_dts",
+            "q2b_control_dts_uniform_expansion",
+        ): {"name", "control.dts_expansion"},
         (
             "q2b_bidirectional",
             "q2b_control_bidirectional_forward",
-        ): {"name", "planner"},
+        ): {"name", "planner.kind"},
         (
             "q2b_denoising_icem",
             "q2b_control_denoising_uniform",
-        ): {"name", "proposal", "component_checkpoint_required"},
+        ): {
+            "name",
+            "proposal.kind",
+            "proposal.learned_weight",
+            "proposal.uniform_weight",
+            "component_checkpoint_required",
+        },
         (
             "q2c_hard_negative_ranker",
             "q2c_control_random_negative_ranker",
-        ): {"name", "control"},
+        ): {"name", "control.ranker_negatives"},
     }
     for (candidate, control), fields in expected.items():
         assert (
-            _field_differences(
+            _leaf_differences(
                 method_by_name(study, candidate), method_by_name(study, control)
             )
             == fields
         )
+
+
+def test_shared_component_parity_is_exact_and_ignores_only_wall_time(
+    tmp_path: Path,
+) -> None:
+    study = with_temp_decisions(config(), tmp_path)
+    write_component_parity_checkpoints(study, backbone_seeds=(42,))
+    control = method_by_name(study, "q2b_control_dts_uniform_expansion")
+    control_path = component_checkpoint_path(
+        study,
+        control,
+        backbone_seed=42,
+        planner_seed=104_729,
+    )
+    checkpoint = torch.load(control_path, map_location="cpu", weights_only=False)
+    checkpoint["training_summary"]["elapsed_seconds"] = 999.0
+    torch.save(checkpoint, control_path)
+    audit = validate_component_parity(
+        study,
+        candidate="q2b_vector_dts",
+        backbone_seed=42,
+        planner_seed=104_729,
+        include_secondary_controls=True,
+    )
+    assert audit["status"] == "exact_match"
+
+    checkpoint["head_state_dicts"]["head"]["weight"][0] += 1
+    torch.save(checkpoint, control_path)
+    with pytest.raises(ValueError, match="shared learned components diverged"):
+        validate_component_parity(
+            study,
+            candidate="q2b_vector_dts",
+            backbone_seed=42,
+            planner_seed=104_729,
+            include_secondary_controls=True,
+        )
+
+
+def test_dts_advancement_control_matches_search_budget_not_direct_policy() -> None:
+    study = config()
+    lock = {"quick_spec_sha256": "unused"}
+    role = next(role for role in study.method_roles if role.name == "q2b_vector_dts")
+    assert role.direct_control == "q2b_control_dts_uniform_expansion"
+    learned = method_by_name(study, "q2b_vector_dts")
+    matched = method_by_name(study, "q2b_control_dts_uniform_expansion")
+    direct = method_by_name(study, "q2b_control_dts_direct")
+    assert (
+        learned.planner.budget.transition_limit
+        == matched.planner.budget.transition_limit
+    )
+    assert matched.control.dts_expansion == "random"
+    assert direct.control.dts_expansion == "direct"
+    assert direct_control_name(study, lock, learned.name) == matched.name
+
+
+def test_bidirectional_screen_reserves_budget_for_stitched_reranking() -> None:
+    study = config()
+    candidate = method_by_name(study, "q2b_bidirectional")
+    control = method_by_name(study, "q2b_control_bidirectional_forward")
+    assert candidate.planner.num_candidates == control.planner.num_candidates == 48
+    half = candidate.planner.horizon // 2
+    two_sided_rollout = 2 * candidate.planner.num_candidates * half
+    rerank_count = (
+        candidate.planner.budget.transition_limit - two_sided_rollout
+    ) // candidate.planner.horizon
+    assert two_sided_rollout == 576
+    assert rerank_count == 16
 
 
 def test_manifest_is_full_900_with_one_hundred_tasks_per_size() -> None:
@@ -427,6 +633,121 @@ def test_ranker_component_path_uses_round_three(tmp_path: Path) -> None:
     assert path.name.endswith("round3.pt")
 
 
+def test_counterexample_resume_rejects_foreign_or_wrong_fold_data(
+    tmp_path: Path,
+) -> None:
+    study = config()
+    method = method_by_name(study, "q2c_hard_negative_ranker")
+    entry = next(
+        row
+        for row in read_jsonl(ROOT / study.paths.train_manifest)
+        if mining_fold(str(row["task_hash"])) == 1
+    )
+    input_path = tmp_path / "round0.pt"
+    input_path.write_bytes(b"checkpoint")
+    env = validate_manifest_entry(entry)
+    goal = int(entry["goal_cell"])
+    distances = bfs_distances_from(env._maze_mask, goal, int(env.config.width))
+    source = next(
+        int(state)
+        for state in np.flatnonzero((~env._maze_mask).reshape(-1))
+        if int(distances[int(state)]) >= method.planner.horizon
+        and any(
+            next_state(env, int(state), action) == int(state) for action in (1, 2, 3, 4)
+        )
+    )
+    good_actions = []
+    current = source
+    for _ in range(method.planner.horizon):
+        action = next(
+            action
+            for action in (1, 2, 3, 4)
+            if int(distances[next_state(env, current, action)])
+            == int(distances[current]) - 1
+        )
+        good_actions.append(action)
+        current = next_state(env, current, action)
+    invalid_action = next(
+        action for action in (1, 2, 3, 4) if next_state(env, source, action) == source
+    )
+    trigger_actions = [invalid_action] * method.planner.horizon
+    outcome = execute_candidate(
+        env,
+        source,
+        goal,
+        trigger_actions,
+        progress_candidate_available=True,
+    )
+    record = {
+        "task_hash": str(entry["task_hash"]),
+        "topology_seed": int(entry["topology_seed"]),
+        "maze_size": int(entry["maze_size"]),
+        "source_state": source,
+        "goal_state": int(entry["goal_cell"]),
+        "good_actions": good_actions,
+        "false_optimistic_actions": trigger_actions,
+        "mining_trigger_actions": trigger_actions,
+        "negative_source": "planner_false_optimistic",
+        "outcome": outcome,
+        "candidate_budget": ComputeLedger().to_dict(),
+    }
+    dataset = {
+        "schema": "vector-jepa-full900-counterexamples-v1",
+        "method": method.name,
+        "backbone_seed": 42,
+        "planner_seed": 104_729,
+        "round": 1,
+        "negative_source": "hard_three_rounds",
+        "train_manifest_sha256": "train",
+        "source_checkpoint": str(input_path),
+        "source_checkpoint_sha256": sha256_file(input_path),
+        "records": [record],
+    }
+    lock = {"train_manifest": {"sha256": "train"}}
+    assert (
+        len(
+            _validate_dataset(
+                dataset,
+                config=study,
+                lock=lock,
+                method=method,
+                backbone_seed=42,
+                planner_seed=104_729,
+                round_index=1,
+                input_path=input_path,
+            )
+        )
+        == 1
+    )
+    dataset["records"] = [{**record, "task_hash": "foreign"}]
+    with pytest.raises(ValueError, match="foreign or duplicate"):
+        _validate_dataset(
+            dataset,
+            config=study,
+            lock=lock,
+            method=method,
+            backbone_seed=42,
+            planner_seed=104_729,
+            round_index=1,
+            input_path=input_path,
+        )
+    over_budget = ComputeLedger().to_dict()
+    over_budget["plan_transitions"] = 769
+    over_budget["total_transitions"] = 769
+    dataset["records"] = [{**record, "candidate_budget": over_budget}]
+    with pytest.raises(ValueError, match="planner-only budget"):
+        _validate_dataset(
+            dataset,
+            config=study,
+            lock=lock,
+            method=method,
+            backbone_seed=42,
+            planner_seed=104_729,
+            round_index=1,
+            input_path=input_path,
+        )
+
+
 def test_result_path_keeps_action_protocol_separate() -> None:
     study = config()
     corrected = result_path(
@@ -452,7 +773,7 @@ def test_parity_requires_every_core_task_field_to_match() -> None:
     reference = {"results": {"task_rows": rows}}
     candidate = {"tasks": [dict(row) for row in rows]}
     assert compare(reference, candidate)["status"] == "pass"
-    candidate["tasks"][13]["path_length"] = 2
+    candidate["tasks"][13]["goal_cell"] = 3
     with pytest.raises(ValueError, match="parity failed"):
         compare(reference, candidate)
 
@@ -464,6 +785,16 @@ def test_parity_rejects_a_different_executed_action_sequence() -> None:
     candidate_rows[13]["decision_traces"][0]["executed_action"] = 2
     with pytest.raises(ValueError, match="parity failed"):
         compare(reference, {"tasks": candidate_rows})
+
+
+def test_q1_bridge_uses_the_complete_q0_parity_field_set() -> None:
+    rows = fake_parity_rows()
+    left = {"tasks": rows}
+    right = {"tasks": json.loads(json.dumps(rows))}
+    _assert_bridge_parity(left, right)
+    right["tasks"][0]["repeat_states"] = 1
+    with pytest.raises(ValueError, match="bridge diverged"):
+        _assert_bridge_parity(left, right)
 
 
 def test_paired_bootstrap_is_stratified_deterministic_and_paired() -> None:
@@ -478,6 +809,17 @@ def test_paired_bootstrap_is_stratified_deterministic_and_paired() -> None:
     reversed_control = {"tasks": list(reversed(control["tasks"]))}
     with pytest.raises(ValueError, match="task order"):
         delta_sr(candidate, reversed_control)
+
+
+def test_seed42_interval_enumerates_extreme_bonferroni_tail_exactly() -> None:
+    control = {"tasks": fake_tasks(positive_count=0)}
+    candidate = {"tasks": fake_tasks(positive_count=90)}
+    result = exact_stratified_paired_bootstrap(candidate, control, alpha=0.05 / 48)
+    assert result["delta"] == pytest.approx(0.1)
+    assert result["ci_low"] > 0.0
+    assert result["interval_engine"] == "exact_stratified_empirical_bootstrap"
+    assert result["monte_carlo_samples"] == 0
+    assert result["support_points"] == 1801
 
 
 def test_budget_validation_rejects_overspend_and_legacy_underuse() -> None:
@@ -542,7 +884,7 @@ def test_stage_job_counts_match_the_locked_method_matrix(tmp_path: Path) -> None
         device=None,
     )
     assert len(q2a) == 16
-    assert len(q2b) == 22
+    assert len(q2b) == 26
     assert len(q2c) == 14
 
 
@@ -624,9 +966,50 @@ def test_crossed_bootstrap_rejects_different_task_panels_between_backbones() -> 
         _nested_bootstrap(candidate, control, split="overall", samples=200, seed=3)
 
 
+def test_final_aggregate_reports_size_sd_and_compute_per_decision() -> None:
+    tasks = {
+        seed: [
+            {
+                "task_id": f"t{index}",
+                "maze_size": 9 if index == 0 else 23,
+                "success": float(index == 0),
+                "spl": float(index == 0),
+                "loop_or_cycle": float(index == 1),
+                "invalid_actions": 1.0,
+                "path_length": 2.0,
+                "assistance_rate": 0.25,
+                "decision_count": 2.0,
+                "auxiliary": {
+                    "plan_transitions": 20.0,
+                    "assist_transitions": 2.0,
+                    "total_transitions": 22.0,
+                },
+                "episode_seconds": 0.5,
+            }
+            for index in range(2)
+        ]
+        for seed in (42, 43)
+    }
+    summary = _aggregate(tasks)
+    assert summary["overall"]["sr"]["mean"] == pytest.approx(0.5)
+    assert summary["overall"]["sr"]["sd"] == pytest.approx(0.0)
+    assert summary["overall"]["plan_transitions_per_decision"]["mean"] == pytest.approx(
+        10.0
+    )
+    assert summary["by_size"]["9"]["task_count_per_backbone"] == 1
+
+
 def test_checked_in_protocol_lock_reproduces() -> None:
     study = config()
     lock_path = ROOT / "vector_jepa_planner_full900_screen/configs/protocol_lock.json"
     if not lock_path.exists():
         pytest.skip("protocol lock is generated after implementation review")
     validate_lock(study, load_json(lock_path))
+
+
+def test_protocol_lock_captures_both_dependency_files() -> None:
+    lock = build_lock(CONFIG_PATH)
+    assert lock["environment_spec"]["path"] == "pyproject.toml"
+    assert lock["environment_lock"]["path"] == "uv.lock"
+    assert lock["environment_spec"]["sha256"] == sha256_file(ROOT / "pyproject.toml")
+    assert lock["environment_lock"]["sha256"] == sha256_file(ROOT / "uv.lock")

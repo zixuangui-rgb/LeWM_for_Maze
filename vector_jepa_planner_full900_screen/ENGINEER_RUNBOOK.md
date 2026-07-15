@@ -27,6 +27,10 @@ uv run python -m vector_jepa_planner_full900_screen.audit_protocol \
 
 任何一步失败都不得进入正式矩阵。
 
+`lock_protocol`默认拒绝覆盖已有锁。`--replace-before-run`只供交接前审查修订使用，
+且只要run目录或本实验checkpoint目录已有任一正式文件就会拒绝；工程师正式执行时
+只能使用`--check`。
+
 ## 3. Q0：旧新B0 full-900 parity
 
 ```bash
@@ -65,16 +69,22 @@ uv run python -m vector_jepa_planner_full900_screen.run_plan \
 uv run python -m vector_jepa_planner_full900_screen.freeze_shortlist
 ```
 
-Q2C每个ranker依次执行train、calibrate、round1、round2、round3，再评测。不得跳轮。
+Q2B中的Vector-DTS以uniform-expansion MCTS作为正式晋级控制；Direct-DTS仍会运行，
+但只是search-disabled描述性诊断。Q2C每个ranker依次执行train、calibrate、round1、
+round2、round3，再评测。不得跳轮。
+
+`freeze_shortlist`会对DTS三份checkpoint和Bidirectional/forward两份checkpoint执行
+共享组件exact-parity gate。若报`shared learned components diverged`，不得手工修改
+decision或继续Q3；应保留全部日志并把本次运行判为实现/确定性失败。
 
 ## 6. 运行量透明度
 
 每个method必须分别运行corrected和unmasked，且每次均为完整900任务。因此seed42
-阶段的固定评测量为：Q0 4次、Q1 10次、Q2A 8次、Q2B 12次、Q2C 4次，共38次
-full-900，即34,200个episode；此外还有head训练、校准和Q2C反例挖掘。
+阶段的固定评测量为：Q0 4次、Q1 10次、Q2A 8次、Q2B 14次、Q2C 4次，共40次
+full-900，即36,000个episode；此外还有head训练、校准和Q2C反例挖掘。
 
 Q3在shortlist=2且控制均不重合的最坏情况下增加20次full-900，即18,000个episode。
-Q4的最坏情况是winner和直接控制都含可训练head：增加82次full-900，即73,800个
+Q4的最坏情况是winner和匹配控制都含可训练head：增加82次full-900，即73,800个
 episode。实际数量由冻结decision确定，并可先用`--dry-run`查看。取消candidate
 replay避免把每次evaluation再近似执行一遍，但不会缩短900任务主评测。
 
@@ -91,7 +101,7 @@ uv run python -m vector_jepa_planner_full900_screen.run_plan \
 uv run python -m vector_jepa_planner_full900_screen.freeze_final
 ```
 
-Q3只运行shortlist、B0和每个shortlist的直接控制，新增backbones43/44。若shortlist
+Q3只运行shortlist、B0和每个shortlist的预注册匹配控制，新增backbones43/44。若shortlist
 为空，stage没有方法作业，`freeze_final`会写入无胜者关闭决定。
 
 ## 8. Q4：十backbone最终对齐
@@ -104,7 +114,7 @@ uv run python -m vector_jepa_planner_full900_screen.run_plan \
 uv run python -m vector_jepa_planner_full900_screen.summarize
 ```
 
-Q4为唯一胜者、B0和直接控制补backbones45-51。有训练head的方法还在全部10个
+Q4为唯一胜者、B0和匹配控制补backbones45-51。有训练head的方法还在全部10个
 backbone上补planner seed130363。`summarize`先在backbone内平均planner seeds，
 生成 `summary.json`、`REPORT.md` 和永久closure工件。
 

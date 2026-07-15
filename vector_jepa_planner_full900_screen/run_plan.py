@@ -16,6 +16,7 @@ from typing import Any
 import numpy as np
 
 from vector_jepa_planner_full900_screen.common import (
+    atomic_text_dump,
     load_config,
     load_json,
     planner_seeds,
@@ -511,8 +512,7 @@ def freeze_schedule(
     if path.exists() and path.read_text(encoding="utf-8") != expected:
         raise ValueError(f"frozen stage schedule changed: {path}")
     if not path.exists():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(expected, encoding="utf-8")
+        atomic_text_dump(path, expected)
     return path
 
 

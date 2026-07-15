@@ -21,6 +21,7 @@ from vector_jepa_planner_full900_screen.common import (
     validate_lock,
 )
 from vector_jepa_planner_full900_screen.methods import (
+    component_parity_audits,
     direct_control_name,
     effective_method,
     validate_final_selection,
@@ -44,6 +45,12 @@ def main() -> None:
     validate_lock(config, lock)
     shortlist_record = validate_shortlist(config, lock)
     shortlist = list(shortlist_record.get("shortlist", []))
+    component_parity = component_parity_audits(
+        config,
+        candidates=shortlist,
+        backbone_seeds=config.replication.expansion_backbone_seeds,
+        planner_seeds=(config.replication.screen_planner_seeds[0],),
+    )
     output = resolve_path(config.paths.p7_selection)
     if output.exists():
         raise FileExistsError("final-winner decision is immutable")
@@ -155,6 +162,7 @@ def main() -> None:
             direct_control_name(config, lock, winner) if winner is not None else None
         ),
         "candidate_audits": audits,
+        "component_parity_audits": component_parity,
         "input_sha256s": dict(sorted(input_sha256s.items())),
         "closed_without_winner": winner is None,
     }

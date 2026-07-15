@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+from typing import Any
+
+import torch
+
 from final_closure.common import sha256_file
 from vector_jepa_planner_frontier.common import method_by_name
 from vector_jepa_planner_frontier.schemas import MethodConfig
+from vector_jepa_planner_full900_screen.analysis import screen_planner_seed
 from vector_jepa_planner_full900_screen.common import (
+    component_checkpoint_path,
     load_json,
     resolve_path,
     result_path,
@@ -13,6 +21,145 @@ from vector_jepa_planner_full900_screen.common import (
 )
 from vector_jepa_planner_full900_screen.parity import validate_q0_gate
 from vector_jepa_planner_full900_screen.schemas import QuickStudyConfig
+
+COMPONENT_PARITY_GROUPS: dict[str, tuple[str, ...]] = {
+    "q2b_vector_dts": (
+        "q2b_vector_dts",
+        "q2b_control_dts_uniform_expansion",
+        "q2b_control_dts_direct",
+    ),
+    "q2b_bidirectional": (
+        "q2b_bidirectional",
+        "q2b_control_bidirectional_forward",
+    ),
+}
+
+
+def _hash_tree(digest: Any, value: Any) -> None:
+    if isinstance(value, torch.Tensor):
+        tensor = value.detach().cpu().contiguous()
+        digest.update(b"tensor\0")
+        digest.update(str(tensor.dtype).encode("ascii"))
+        digest.update(json.dumps(list(tensor.shape)).encode("ascii"))
+        digest.update(tensor.view(torch.uint8).numpy().tobytes())
+        return
+    if isinstance(value, dict):
+        digest.update(b"dict\0")
+        for key in sorted(value):
+            _hash_tree(digest, str(key))
+            _hash_tree(digest, value[key])
+        return
+    if isinstance(value, (list, tuple)):
+        digest.update(b"sequence\0")
+        for item in value:
+            _hash_tree(digest, item)
+        return
+    digest.update(b"scalar\0")
+    digest.update(
+        json.dumps(
+            value,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    )
+
+
+def _scientific_component_sha256(checkpoint: dict[str, Any]) -> str:
+    training_summary = dict(checkpoint.get("training_summary", {}))
+    training_summary.pop("elapsed_seconds", None)
+    payload = {
+        "source_checkpoint_sha256": checkpoint.get("source_checkpoint_sha256"),
+        "train_manifest_sha256": checkpoint.get("train_manifest_sha256"),
+        "validation_manifest_sha256": checkpoint.get("validation_manifest_sha256"),
+        "head_config": checkpoint.get("head_config"),
+        "head_state_dicts": checkpoint.get("head_state_dicts"),
+        "training_summary": training_summary,
+        "validation_metrics": checkpoint.get("validation_metrics"),
+        "initialization_parent": checkpoint.get("initialization_parent"),
+        "joint_counterexample_provenance": checkpoint.get(
+            "joint_counterexample_provenance"
+        ),
+    }
+    digest = hashlib.sha256()
+    _hash_tree(digest, payload)
+    return digest.hexdigest()
+
+
+def validate_component_parity(
+    config: QuickStudyConfig,
+    *,
+    candidate: str,
+    backbone_seed: int,
+    planner_seed: int,
+    include_secondary_controls: bool = False,
+) -> dict[str, Any]:
+    group = COMPONENT_PARITY_GROUPS.get(candidate)
+    if group is None:
+        return {}
+    names = group if include_secondary_controls else group[:2]
+    digests: dict[str, str] = {}
+    checkpoint_sha256s: dict[str, str] = {}
+    for name in names:
+        method = method_by_name(config, name)
+        path = component_checkpoint_path(
+            config,
+            method,
+            backbone_seed=backbone_seed,
+            planner_seed=planner_seed,
+        )
+        if not path.exists():
+            raise FileNotFoundError(f"missing component parity checkpoint: {path}")
+        checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+        if (
+            checkpoint.get("stage") != "component_calibration"
+            or checkpoint.get("method_name") != name
+            or int(checkpoint.get("backbone_seed", -1)) != backbone_seed
+            or int(checkpoint.get("planner_seed", -1)) != planner_seed
+        ):
+            raise ValueError(f"component parity checkpoint metadata mismatch: {path}")
+        digests[name] = _scientific_component_sha256(checkpoint)
+        checkpoint_sha256s[name] = sha256_file(path)
+    if len(set(digests.values())) != 1:
+        raise ValueError(
+            f"shared learned components diverged inside {candidate}: {digests}"
+        )
+    return {
+        "candidate": candidate,
+        "methods": list(names),
+        "backbone_seed": backbone_seed,
+        "planner_seed": planner_seed,
+        "scientific_component_sha256": next(iter(digests.values())),
+        "checkpoint_sha256s": dict(sorted(checkpoint_sha256s.items())),
+        "status": "exact_match",
+    }
+
+
+def component_parity_audits(
+    config: QuickStudyConfig,
+    *,
+    candidates: list[str] | tuple[str, ...] | set[str],
+    backbone_seeds: tuple[int, ...],
+    planner_seeds: tuple[int, ...],
+    include_dts_secondary_control: bool = False,
+) -> list[dict[str, Any]]:
+    audits = []
+    for candidate in sorted(set(candidates).intersection(COMPONENT_PARITY_GROUPS)):
+        for backbone_seed in backbone_seeds:
+            for planner_seed in planner_seeds:
+                audits.append(
+                    validate_component_parity(
+                        config,
+                        candidate=candidate,
+                        backbone_seed=backbone_seed,
+                        planner_seed=planner_seed,
+                        include_secondary_controls=(
+                            include_dts_secondary_control
+                            and candidate == "q2b_vector_dts"
+                        ),
+                    )
+                )
+    return audits
 
 
 def _validate_input_result_hashes(
@@ -91,8 +238,25 @@ def validate_q1_selection(
     if value.get("categorical_bridge_exact_task_parity") is not True:
         raise ValueError("Q1 decision lacks categorical-CEM bridge parity")
     inputs = value.get("input_sha256s")
-    if not isinstance(inputs, dict) or len(inputs) != 12:
+    expected_input_keys = {
+        f"{name}:{action}"
+        for name in {"b0_legacy_l2_cem", *allowed}
+        for action in config.replication.action_selections
+    }
+    if not isinstance(inputs, dict) or set(inputs) != expected_input_keys:
         raise ValueError("Q1 decision does not hash all twelve full-900 inputs")
+    expected_ranking = sorted(
+        ranked,
+        key=lambda row: (
+            -float(row["corrected_sr"]),
+            -float(row["corrected_ood_sr"]),
+            -float(row["unmasked_sr"]),
+            float(row["planner_forward_calls_per_decision"]),
+            str(row["method"]),
+        ),
+    )
+    if ranked != expected_ranking or selected != str(ranked[0]["method"]):
+        raise ValueError("Q1 decision violates its locked deterministic ranking")
     _validate_input_result_hashes(config, inputs)
     return value
 
@@ -135,8 +299,33 @@ def validate_shortlist(
         != eligible
     ):
         raise ValueError("shortlist record lacks the complete candidate audit")
+    expected_component_parity = component_parity_audits(
+        config,
+        candidates=("q2b_vector_dts", "q2b_bidirectional"),
+        backbone_seeds=(42,),
+        planner_seeds=(config.replication.screen_planner_seeds[0],),
+        include_dts_secondary_control=True,
+    )
+    if value.get("component_parity_audits") != expected_component_parity:
+        raise ValueError("shortlist shared-component parity evidence mismatch")
     inputs = value.get("input_sha256s")
-    if not isinstance(inputs, dict) or not inputs:
+    expected_methods = {"b0_legacy_l2_cem"}
+    for role in config.method_roles:
+        if not role.advancement_eligible:
+            continue
+        method = effective_method(config, lock, role.name)
+        expected_methods.add(method.name)
+        expected_methods.add(direct_control_name(config, lock, method.name))
+    expected_input_keys = {
+        (
+            f"{name}:b42:p"
+            f"{screen_planner_seed(effective_method(config, lock, name))}:"
+            f"{action}"
+        )
+        for name in expected_methods
+        for action in config.replication.action_selections
+    }
+    if not isinstance(inputs, dict) or set(inputs) != expected_input_keys:
         raise ValueError("shortlist record lacks input result hashes")
     _validate_input_result_hashes(config, inputs)
     return value
@@ -174,8 +363,32 @@ def validate_final_selection(
         != shortlist
     ):
         raise ValueError("final record lacks the complete shortlist audit")
+    expected_component_parity = component_parity_audits(
+        config,
+        candidates=shortlist,
+        backbone_seeds=config.replication.expansion_backbone_seeds,
+        planner_seeds=(config.replication.screen_planner_seeds[0],),
+    )
+    if value.get("component_parity_audits") != expected_component_parity:
+        raise ValueError("final shared-component parity evidence mismatch")
     inputs = value.get("input_sha256s")
-    if not isinstance(inputs, dict) or (shortlist and not inputs):
+    expected_input_keys: set[str] = set()
+    if shortlist:
+        expected_methods = {"b0_legacy_l2_cem"}
+        for name in shortlist:
+            expected_methods.add(name)
+            expected_methods.add(direct_control_name(config, lock, name))
+        expected_input_keys = {
+            (
+                f"{name}:b{seed}:p"
+                f"{screen_planner_seed(effective_method(config, lock, name))}:"
+                f"{action}"
+            )
+            for name in expected_methods
+            for seed in config.replication.expansion_backbone_seeds
+            for action in config.replication.action_selections
+        }
+    if not isinstance(inputs, dict) or set(inputs) != expected_input_keys:
         raise ValueError("final record lacks input result hashes")
     _validate_input_result_hashes(config, inputs)
     return value
@@ -228,9 +441,12 @@ def direct_control_name(
 
 
 __all__ = [
+    "COMPONENT_PARITY_GROUPS",
+    "component_parity_audits",
     "direct_control_name",
     "effective_method",
     "selected_q1_parent",
+    "validate_component_parity",
     "validate_final_selection",
     "validate_q1_selection",
     "validate_shortlist",

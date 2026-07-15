@@ -4,6 +4,7 @@
 
 - [ ] 当前branch/commit与交接记录一致。
 - [ ] `lock_protocol --check`通过。
+- [ ] `pyproject.toml`与`uv.lock`的锁记录均通过。
 - [ ] `audit_protocol --require-checkpoints`通过。
 - [ ] 10个LeWM checkpoint均存在且不是复制seed。
 - [ ] 四个manifest hash和零overlap通过。
@@ -23,9 +24,11 @@
 - [ ] Q0两个parity均为pass，且`executed_actions_compared=true`。
 - [ ] Q1 parent由脚本冻结，不人工选择。
 - [ ] Q2A/Q2B/Q2C全部完成后才冻结shortlist。
+- [ ] Vector-DTS晋级对照是uniform-expansion tree control；Direct-DTS不进入门槛。
+- [ ] DTS与Bidirectional对应共享head的exact-parity audits全部为`exact_match`。
 - [ ] Shortlist最多两个，corrected/unmasked不混分。
 - [ ] Q3完成后由脚本冻结零或一个winner。
-- [ ] Q4只运行winner、B0和直接控制。
+- [ ] Q4只运行winner、B0和预注册匹配控制。
 
 ## 交付时
 
@@ -36,5 +39,6 @@
 - [ ] planner seeds在backbone内平均，没有按20个独立run报告。
 - [ ] 最终区间按共同task panel的crossed bootstrap计算，不称为嵌套独立task。
 - [ ] Seen/OOD、corrected/unmasked和assistance分别报告。
+- [ ] 逐尺寸SR、10-backbone SD和每decision compute均已报告。
 - [ ] 最终文字明确development/exploratory状态。
 - [ ] 没有在结果后追加配置或重新开启组合搜索。

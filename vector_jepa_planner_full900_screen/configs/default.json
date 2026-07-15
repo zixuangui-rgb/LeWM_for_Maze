@@ -71,6 +71,7 @@
     "expansion_backbone_count": 3,
     "max_shortlist_size": 2,
     "bonferroni_comparison_count": 48,
+    "screen_interval_engine": "exact_stratified_empirical_bootstrap",
     "corrected_is_parent_selection_metric": true,
     "blend_action_protocols": false
   },
@@ -202,6 +203,7 @@
       "stage": "P4",
       "track": "F",
       "planner": {"kind": "vector_dts"},
+      "scorer": {"goal_l2_weight": 1.0, "reachability_weight": 1.0},
       "component_checkpoint_required": true
     },
     {
@@ -209,14 +211,24 @@
       "stage": "P4",
       "track": "F",
       "planner": {"kind": "vector_dts"},
+      "scorer": {"goal_l2_weight": 1.0, "reachability_weight": 1.0},
       "control": {"dts_expansion": "direct"},
+      "component_checkpoint_required": true
+    },
+    {
+      "name": "q2b_control_dts_uniform_expansion",
+      "stage": "P4",
+      "track": "F",
+      "planner": {"kind": "vector_dts"},
+      "scorer": {"goal_l2_weight": 1.0, "reachability_weight": 1.0},
+      "control": {"dts_expansion": "random"},
       "component_checkpoint_required": true
     },
     {
       "name": "q2b_bidirectional",
       "stage": "P4",
       "track": "F",
-      "planner": {"kind": "bidirectional"},
+      "planner": {"kind": "bidirectional", "num_candidates": 48},
       "scorer": {"goal_l2_weight": 1.0, "verifier_weight": 0.3},
       "memory": {"enabled": true, "hard_pruning": false},
       "component_checkpoint_required": true
@@ -225,7 +237,7 @@
       "name": "q2b_control_bidirectional_forward",
       "stage": "P4",
       "track": "F",
-      "planner": {"kind": "best_first"},
+      "planner": {"kind": "best_first", "num_candidates": 48},
       "scorer": {"goal_l2_weight": 1.0, "verifier_weight": 0.3},
       "memory": {"enabled": true, "hard_pruning": false},
       "component_checkpoint_required": true
@@ -274,8 +286,9 @@
     {"name": "q2a_verifier", "phase": "Q2A", "role": "candidate", "parent": "q1_winner", "direct_control": "__q1_winner__", "advancement_eligible": true, "mechanism": "action-consistency verifier"},
     {"name": "q2a_autoregressive_proposal", "phase": "Q2A", "role": "candidate", "parent": "q1_winner", "direct_control": "__q1_winner__", "advancement_eligible": true, "mechanism": "autoregressive action-sequence proposal"},
     {"name": "q2a_transposition_memory", "phase": "Q2A", "role": "candidate", "parent": "q1_best_first", "direct_control": "q1_best_first_1x", "advancement_eligible": true, "mechanism": "soft transposition memory with learned state join"},
-    {"name": "q2b_vector_dts", "phase": "Q2B", "role": "candidate", "parent": "fixed", "direct_control": "q2b_control_dts_direct", "advancement_eligible": true, "mechanism": "learned dynamic tree search expansion"},
-    {"name": "q2b_control_dts_direct", "phase": "Q2B", "role": "matched_control", "parent": "fixed", "direct_control": "q2b_control_dts_direct", "advancement_eligible": false, "mechanism": "direct DTS expansion control"},
+    {"name": "q2b_vector_dts", "phase": "Q2B", "role": "candidate", "parent": "fixed", "direct_control": "q2b_control_dts_uniform_expansion", "advancement_eligible": true, "mechanism": "learned policy guided dynamic tree expansion"},
+    {"name": "q2b_control_dts_direct", "phase": "Q2B", "role": "bridge_control", "parent": "fixed", "direct_control": "q2b_control_dts_direct", "advancement_eligible": false, "mechanism": "search-disabled direct DTS policy diagnostic"},
+    {"name": "q2b_control_dts_uniform_expansion", "phase": "Q2B", "role": "matched_control", "parent": "fixed", "direct_control": "q2b_control_dts_uniform_expansion", "advancement_eligible": false, "mechanism": "same-budget uniform expansion tree control"},
     {"name": "q2b_bidirectional", "phase": "Q2B", "role": "candidate", "parent": "fixed", "direct_control": "q2b_control_bidirectional_forward", "advancement_eligible": true, "mechanism": "bidirectional latent search"},
     {"name": "q2b_control_bidirectional_forward", "phase": "Q2B", "role": "matched_control", "parent": "fixed", "direct_control": "q2b_control_bidirectional_forward", "advancement_eligible": false, "mechanism": "forward-only matched search control"},
     {"name": "q2b_denoising_icem", "phase": "Q2B", "role": "candidate", "parent": "fixed", "direct_control": "q2b_control_denoising_uniform", "advancement_eligible": true, "mechanism": "discrete denoising proposal for iCEM"},

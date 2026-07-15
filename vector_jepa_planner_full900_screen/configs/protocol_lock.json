@@ -1,7 +1,7 @@
 {
   "amendment_after": {
     "path": "vector_jepa_planner_full900_screen/protocol/frozen_design.json",
-    "sha256": "648bc03a6130417d1aba75d18a416be62523a6a5ece97a5b2d33216de6cb43b5"
+    "sha256": "48ccbed217b57de211c37f5f83bb823119bd3323af0f5fa822f8745fdb6492ca"
   },
   "amendment_before": {
     "path": "vector_jepa_planner_full900_screen/protocol/initial_design.json",
@@ -9,21 +9,21 @@
   },
   "amendment_document": {
     "path": "vector_jepa_planner_full900_screen/PROTOCOL_HISTORY.md",
-    "sha256": "6ed8531a69cbf7d994b1c9bd2e0f84ec9a9fd3e381266b64d3020d2b4a0f00a6"
+    "sha256": "799610959c42cae9c33fba8a20a4a558861f692ba867fc44610ec68846247ae4"
   },
   "amendments": {
     "path": "vector_jepa_planner_full900_screen/protocol/amendments.jsonl",
-    "sha256": "d2a5299e261989a531a07013188cd5955db39260ae777a8fa8eb1a1a08580167"
+    "sha256": "74c2ce81f8a482a2af35f7087deacfbfdee5c690a4b671c099acf303cb6a5e3f"
   },
-  "analysis_spec_sha256": "a8b75585d903f6e0fbba26f9e937b0569f1825ccf1f2d297236b6e0bf55b452c",
+  "analysis_spec_sha256": "f4ff3770204e89c0ba05782eb3d1ec5e2d293c1a3d8469b1678dd10c872824ae",
   "claims_document": {
     "path": "vector_jepa_planner_full900_screen/CLAIMS_AND_STOP_RULES.md",
-    "sha256": "277470ec6175b35f31895efd9f941a980ec8d6bce47e7a5688966625227e4c59"
+    "sha256": "1de61a93696b12ac1a931883a43a746bdc21ee03259671f0c196ffea3f879855"
   },
-  "code_fingerprint": "4476853ccbbf8af85cc396dba3f7b7bb370151883f2e01265366dc06d1e8bde7",
+  "code_fingerprint": "8533e2c8863ec6fa06c4e1af09fd92c06731b0a1e116cacef24610c61691ffe9",
   "compatibility_document": {
     "path": "vector_jepa_planner_full900_screen/COMPATIBILITY.md",
-    "sha256": "025a6bed6959b3b70413532ebd866d2e6567a79d4e9a4c17058f9d2ba3c863f5"
+    "sha256": "97e7969dde3c6111da560c5515d9e3e27d9f31b781e85968ba4ffc72c677a6cf"
   },
   "confirmatory_manifest": {
     "count": 900,
@@ -40,8 +40,9 @@
       "25": 100,
       "9": 100
     },
+    "unique_layout_hashes": 900,
     "unique_task_hashes": 900,
-    "unique_topology_hashes": 900
+    "unique_topologies": 900
   },
   "development_manifest": {
     "count": 900,
@@ -58,46 +59,51 @@
       "25": 100,
       "9": 100
     },
+    "unique_layout_hashes": 900,
     "unique_task_hashes": 900,
-    "unique_topology_hashes": 900
+    "unique_topologies": 900
   },
   "environment_lock": {
+    "path": "uv.lock",
+    "sha256": "80fcccf03c4e920b096be5205fb29fb408acdcc0a8d9cc3da9c77d405c8d984d"
+  },
+  "environment_spec": {
     "path": "pyproject.toml",
     "sha256": "82d82bc77e52e6c9363f34681b22251d29b602bb3032ad92820a7f64cbb953af"
   },
   "handoff_document": {
     "path": "vector_jepa_planner_full900_screen/HANDOFF_CHECKLIST.md",
-    "sha256": "557d0486920d6149f3226a121bdaa982775e256443491fffa5b2238262e95a8d"
+    "sha256": "5c9d69dc4f5115474999ce18728cd69a24ac0bd198709d1feda8128e620c28f1"
   },
   "implementation_audit_document": {
     "path": "vector_jepa_planner_full900_screen/IMPLEMENTATION_AUDIT.md",
-    "sha256": "bfba9d7f452960a1cfbe19cb05aec99606573a1896f8092ca49a848d0138047c"
+    "sha256": "aa6c56512fa5ada8bb2efaee07d61ee6f30be8ff83ba1d427b177b534bea93d2"
   },
   "method_config": {
     "path": "vector_jepa_planner_full900_screen/configs/default.json",
-    "sha256": "460cf3cb532d0f0c36f7412768304b87950677fe6dd5d866937535a34c3b86de"
+    "sha256": "5251dcaf94c1ce40e21c44faec19481c4a76fc00b05e1875c7a8f24c462fbaec"
   },
   "methods_document": {
     "path": "vector_jepa_planner_full900_screen/METHODS.md",
-    "sha256": "b7fd7b15f6c2ad7ec5610c08048727a8fc64b31f3e67415087ed4fd3dc7019f1"
+    "sha256": "e2a62da44e6214fd68186ee55e16e0835086c4b1f04881837ce98eb4554471ea"
   },
   "protocol_document": {
     "path": "vector_jepa_planner_full900_screen/EXPERIMENT_PROTOCOL.md",
-    "sha256": "de38adcebfa40b09819c8457df9e3973184141ae87b4a290cd6899a8a80139cb"
+    "sha256": "4b92edd4bc2eb541a8df1db77c3ef24125fc027016f888070d16980bea0b0601"
   },
   "protocol_id": "vector-jepa-planner-full900-screen-v1",
-  "quick_spec_sha256": "bc872a88b227b50513392d2df25f566e5496915e8d72abda3fe0c8f59cedeef3",
+  "quick_spec_sha256": "16ff92f07a1357a48182cd917d2322ea7ffb7c004be9ca06a67277f51cd96c2e",
   "readme_document": {
     "path": "vector_jepa_planner_full900_screen/README.md",
-    "sha256": "ece58dc3f8f47af13a341729c48fad93cbd8f07db8eefc730d73df4653a4bbea"
+    "sha256": "113ba3ed264120088440456d15e264c21ae5ff30cf6e5a8b1d3e76a8167512c2"
   },
   "result_schema_document": {
     "path": "vector_jepa_planner_full900_screen/RESULT_SCHEMA.md",
-    "sha256": "399ee9ad66700ae89c6ef03b998a9c5b72293cc3c29492eb2965d76e6e578f92"
+    "sha256": "6920ec86238e5cc7ab141e68d9a202e7bfc9a8ba33fffd45c199f964affbf62d"
   },
   "runbook_document": {
     "path": "vector_jepa_planner_full900_screen/ENGINEER_RUNBOOK.md",
-    "sha256": "e9e184af69608278dd945e73c0bbe82eca797b039de2423a350509003bf63ab4"
+    "sha256": "fc229fcd7fa28976b53f887bc81e75b52778ed0b94c2297d50c5c59213f8e959"
   },
   "schema": "vector-jepa-full900-screen-lock-v1",
   "source_baseline": {
@@ -110,7 +116,7 @@
   "status": "locked",
   "test_suite": {
     "path": "tests/test_vector_jepa_planner_full900_screen.py",
-    "sha256": "13d34ac0367eee011ae7aaf4ff24143191e6a9dccfff954214f103628b667932"
+    "sha256": "c4ae7928340fbeb266f53f2266c3f97a85d076946ceb25cc2c36abc504c85009"
   },
   "train_manifest": {
     "count": 2800,
@@ -125,12 +131,13 @@
       "21": 400,
       "9": 400
     },
+    "unique_layout_hashes": 2800,
     "unique_task_hashes": 2800,
-    "unique_topology_hashes": 2800
+    "unique_topologies": 2800
   },
   "validation_document": {
     "path": "vector_jepa_planner_full900_screen/VALIDATION.md",
-    "sha256": "ae071e3a45b7eb3cf3e0ff5e396bcc76844432d436a4c8fe08d40530d76d0b02"
+    "sha256": "88a0039a4f5be674da7a5e8b0ad7e9d26a40f77c4982d9dbaa317c47f579c13b"
   },
   "validation_manifest": {
     "count": 700,
@@ -145,7 +152,8 @@
       "21": 100,
       "9": 100
     },
+    "unique_layout_hashes": 700,
     "unique_task_hashes": 700,
-    "unique_topology_hashes": 700
+    "unique_topologies": 700
   }
 }

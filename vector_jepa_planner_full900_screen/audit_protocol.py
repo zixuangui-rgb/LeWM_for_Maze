@@ -37,13 +37,46 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _field_differences(left: Any, right: Any) -> set[str]:
-    left_value = left.model_dump(mode="json")
-    right_value = right.model_dump(mode="json")
+def _leaf_differences(left: Any, right: Any) -> set[str]:
+    def visit(left_value: Any, right_value: Any, prefix: str) -> set[str]:
+        if isinstance(left_value, dict) and isinstance(right_value, dict):
+            output: set[str] = set()
+            for key in sorted(set(left_value) | set(right_value)):
+                path = f"{prefix}.{key}" if prefix else key
+                if key not in left_value or key not in right_value:
+                    output.add(path)
+                else:
+                    output.update(visit(left_value[key], right_value[key], path))
+            return output
+        return set() if left_value == right_value else {prefix}
+
+    return visit(left.model_dump(mode="json"), right.model_dump(mode="json"), "")
+
+
+def _manifest_summary(
+    rows: list[dict[str, Any]], *, expected_counts: dict[int, int], role: str
+) -> dict[str, Any]:
+    counts = Counter(int(row["maze_size"]) for row in rows)
+    if dict(counts) != expected_counts:
+        raise ValueError(f"{role} maze-size counts drifted: {dict(counts)}")
+    topology = [(int(row["maze_size"]), int(row["topology_seed"])) for row in rows]
+    identities: dict[str, list[Any]] = {
+        "topology": topology,
+        "layout": [row.get("layout_hash") for row in rows],
+        "task": [row.get("task_hash") for row in rows],
+    }
+    for name, values in identities.items():
+        missing = name != "topology" and any(
+            not isinstance(value, str) or not value for value in values
+        )
+        if missing or len(set(values)) != len(values):
+            raise ValueError(f"{role} contains missing or duplicate {name} identities")
     return {
-        key
-        for key in sorted(set(left_value) | set(right_value))
-        if left_value.get(key) != right_value.get(key)
+        "count": len(rows),
+        "size_counts": {str(key): value for key, value in sorted(counts.items())},
+        "unique_topologies": len(set(identities["topology"])),
+        "unique_layouts": len(set(identities["layout"])),
+        "unique_tasks": len(set(identities["task"])),
     }
 
 
@@ -53,13 +86,31 @@ def audit(
     validate_lock(config, lock)
     validate_source_contract(config, lock)
     overlaps = validate_manifest_isolation(config)
-    development = read_jsonl(resolve_path(config.paths.development_manifest))
-    size_counts = Counter(int(row["maze_size"]) for row in development)
-    expected_sizes = {size: 100 for size in range(9, 26, 2)}
-    if len(development) != 900 or dict(size_counts) != expected_sizes:
-        raise ValueError("development full-900 no longer has 100 tasks per size")
-    if len({str(row["task_hash"]) for row in development}) != 900:
-        raise ValueError("development full-900 contains duplicate task hashes")
+    expected_seen = {size: 100 for size in range(9, 22, 2)}
+    expected_full = {size: 100 for size in range(9, 26, 2)}
+    expected_train = {size: 400 for size in range(9, 22, 2)}
+    manifest_summaries = {
+        "train": _manifest_summary(
+            read_jsonl(resolve_path(config.paths.train_manifest)),
+            expected_counts=expected_train,
+            role="train",
+        ),
+        "development": _manifest_summary(
+            read_jsonl(resolve_path(config.paths.development_manifest)),
+            expected_counts=expected_full,
+            role="development",
+        ),
+        "validation": _manifest_summary(
+            read_jsonl(resolve_path(config.paths.validation_manifest)),
+            expected_counts=expected_seen,
+            role="validation",
+        ),
+        "confirmatory": _manifest_summary(
+            read_jsonl(resolve_path(config.paths.confirmatory_manifest)),
+            expected_counts=expected_full,
+            role="confirmatory",
+        ),
+    }
 
     methods = {method.name: method for method in config.methods}
     q1 = [
@@ -70,38 +121,53 @@ def audit(
     for method in q1:
         if method.name == "q1_control_categorical_cem_1x":
             continue
-        differences = _field_differences(
+        differences = _leaf_differences(
             methods["q1_control_categorical_cem_1x"], method
         )
-        if differences != {"name", "planner"}:
+        if differences != {"name", "planner.kind"}:
             raise ValueError(
                 f"Q1 changed more than search for {method.name}: {differences}"
             )
 
     matched_pairs = {
-        "q2b_vector_dts": ("q2b_control_dts_direct", {"name", "control"}),
+        "q2b_vector_dts": (
+            "q2b_control_dts_uniform_expansion",
+            {"name", "control.dts_expansion"},
+        ),
         "q2b_bidirectional": (
             "q2b_control_bidirectional_forward",
-            {"name", "planner"},
+            {"name", "planner.kind"},
         ),
         "q2b_denoising_icem": (
             "q2b_control_denoising_uniform",
-            {"name", "proposal", "component_checkpoint_required"},
+            {
+                "name",
+                "proposal.kind",
+                "proposal.learned_weight",
+                "proposal.uniform_weight",
+                "component_checkpoint_required",
+            },
         ),
         "q2c_hard_negative_ranker": (
             "q2c_control_random_negative_ranker",
-            {"name", "control"},
+            {"name", "control.ranker_negatives"},
         ),
     }
     pair_audit: dict[str, Any] = {}
     for candidate, (control, allowed) in matched_pairs.items():
-        differences = _field_differences(methods[candidate], methods[control])
+        differences = _leaf_differences(methods[candidate], methods[control])
         if differences != allowed:
             raise ValueError(
                 f"matched control drift for {candidate}: "
                 f"expected={allowed} actual={differences}"
             )
         pair_audit[candidate] = {"control": control, "differences": sorted(differences)}
+
+    dts_direct_differences = _leaf_differences(
+        methods["q2b_vector_dts"], methods["q2b_control_dts_direct"]
+    )
+    if dts_direct_differences != {"name", "control.dts_expansion"}:
+        raise ValueError("DTS direct diagnostic drifted from the learned DTS system")
 
     if any(method.planner.budget.transition_limit != 768 for method in config.methods):
         raise ValueError("a method escaped the 768-transition 1x budget")
@@ -134,11 +200,16 @@ def audit(
         "schema": "vector-jepa-full900-screen-audit-v1",
         "status": "pass",
         "protocol_id": config.protocol_id,
-        "full900_size_counts": {
-            str(key): value for key, value in sorted(size_counts.items())
-        },
+        "manifest_summaries": manifest_summaries,
         "manifest_overlaps": overlaps,
         "matched_control_audit": pair_audit,
+        "secondary_control_audit": {
+            "q2b_vector_dts": {
+                "control": "q2b_control_dts_direct",
+                "differences": sorted(dts_direct_differences),
+                "selection_role": "descriptive_only_not_advancement_control",
+            }
+        },
         "method_count": len(config.methods),
         "advancement_candidate_count": sum(
             role.advancement_eligible for role in config.method_roles

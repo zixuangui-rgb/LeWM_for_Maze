@@ -65,6 +65,9 @@ class GateConfig(StrictModel):
     expansion_backbone_count: Literal[3] = 3
     max_shortlist_size: Literal[2] = 2
     bonferroni_comparison_count: Literal[48] = 48
+    screen_interval_engine: Literal["exact_stratified_empirical_bootstrap"] = (
+        "exact_stratified_empirical_bootstrap"
+    )
     corrected_is_parent_selection_metric: Literal[True] = True
     blend_action_protocols: Literal[False] = False
 
@@ -130,6 +133,7 @@ class QuickStudyConfig(StrictModel):
             "q2a_transposition_memory",
             "q2b_vector_dts",
             "q2b_control_dts_direct",
+            "q2b_control_dts_uniform_expansion",
             "q2b_bidirectional",
             "q2b_control_bidirectional_forward",
             "q2b_denoising_icem",

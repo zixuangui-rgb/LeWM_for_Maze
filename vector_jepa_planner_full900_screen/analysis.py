@@ -7,9 +7,17 @@ from typing import Any
 
 import numpy as np
 
-from final_closure.common import read_jsonl, sha256_file
+from final_closure.common import (
+    read_jsonl,
+    sha256_file,
+    summarize_rows,
+    validate_task_rows,
+)
 from spatial_jepa_planning.common import canonical_json_sha256, task_id
+from vector_jepa_planner_frontier.common import validate_finite_tree
+from vector_jepa_planner_frontier.compat import checkpoint_path
 from vector_jepa_planner_full900_screen.common import (
+    component_checkpoint_path,
     load_json,
     resolve_path,
     result_path,
@@ -53,6 +61,8 @@ def load_result(
         raise ValueError(f"result analysis-spec mismatch: {path}")
     if metadata.get("code_fingerprint") != lock["code_fingerprint"]:
         raise ValueError(f"result code fingerprint mismatch: {path}")
+    if metadata.get("git_dirty") is not False:
+        raise ValueError(f"result was produced from a dirty worktree: {path}")
     if int(metadata.get("backbone_seed", -1)) != backbone_seed:
         raise ValueError(f"result backbone mismatch: {path}")
     expected_planner = planner_seed if method.component_checkpoint_required else None
@@ -64,10 +74,40 @@ def load_result(
         raise ValueError(f"result stage mismatch: {path}")
     if value.get("split_role") != config.replication.evaluation_manifest_role:
         raise ValueError(f"result split-role mismatch: {path}")
+    provenance = value.get("provenance", {})
+    source_path = checkpoint_path(config, seed=backbone_seed)
+    if (
+        not source_path.exists()
+        or resolve_path(str(provenance.get("source_checkpoint", ""))).resolve()
+        != source_path.resolve()
+        or provenance.get("source_checkpoint_sha256") != sha256_file(source_path)
+    ):
+        raise ValueError(f"result source-checkpoint provenance mismatch: {path}")
+    expected_component_path = component_checkpoint_path(
+        config,
+        method,
+        backbone_seed=backbone_seed,
+        planner_seed=planner_seed,
+    )
+    if expected_component_path is None:
+        if (
+            provenance.get("component_checkpoint") is not None
+            or provenance.get("component_checkpoint_sha256") is not None
+        ):
+            raise ValueError(f"headless result records a component checkpoint: {path}")
+    elif (
+        not expected_component_path.exists()
+        or resolve_path(str(provenance.get("component_checkpoint", ""))).resolve()
+        != expected_component_path.resolve()
+        or provenance.get("component_checkpoint_sha256")
+        != sha256_file(expected_component_path)
+    ):
+        raise ValueError(f"result component-checkpoint provenance mismatch: {path}")
     manifest_path = resolve_path(config.paths.development_manifest)
     manifest = value.get("manifest", {})
     if (
-        manifest.get("sha256") != lock["development_manifest"]["sha256"]
+        resolve_path(str(manifest.get("path", ""))).resolve() != manifest_path.resolve()
+        or manifest.get("sha256") != lock["development_manifest"]["sha256"]
         or int(manifest.get("count", -1)) != config.replication.task_count
         or sha256_file(manifest_path) != manifest.get("sha256")
     ):
@@ -75,12 +115,19 @@ def load_result(
     tasks = value.get("tasks", [])
     if len(tasks) != config.replication.task_count:
         raise ValueError(f"result is not a complete full-900 evaluation: {path}")
+    validate_task_rows(tasks, config.replication.task_count)
+    validate_finite_tree(value)
     task_ids = [str(row["task_id"]) for row in tasks]
     if len(set(task_ids)) != len(task_ids):
         raise ValueError(f"duplicate task IDs in result: {path}")
     expected_task_ids = [task_id(row) for row in read_jsonl(manifest_path)]
     if task_ids != expected_task_ids:
         raise ValueError(f"result task order/hash mismatch: {path}")
+    expected_summary = summarize_rows(
+        tasks, seen_max_size=config.protocol.seen_max_size
+    )
+    if value.get("summary") != expected_summary:
+        raise ValueError(f"result summary no longer matches its task rows: {path}")
     return value
 
 
@@ -174,6 +221,85 @@ def stratified_paired_bootstrap(
     }
 
 
+def exact_stratified_paired_bootstrap(
+    candidate: dict[str, Any],
+    control: dict[str, Any],
+    *,
+    alpha: float = 0.05,
+) -> dict[str, float | int | str]:
+    """Enumerate the empirical paired bootstrap distribution exactly.
+
+    Success differences are in {-1, 0, 1}.  Within each maze-size stratum, the
+    bootstrap sum is therefore a small polynomial power; convolving the nine
+    stratum distributions removes Monte Carlo error from the extreme
+    Bonferroni tails used by the seed-42 screen.
+    """
+
+    if not 0.0 < alpha < 1.0:
+        raise ValueError("bootstrap alpha must lie in (0, 1)")
+    left, right = _paired_rows(candidate, control, "overall")
+    total = len(left)
+    if total == 0:
+        raise ValueError("paired bootstrap requires at least one task")
+
+    distribution = np.asarray([1.0], dtype=np.float64)
+    support_offset = 0
+    for size in sorted({int(row["maze_size"]) for row in left}):
+        paired = [
+            (a, b)
+            for a, b in zip(left, right, strict=True)
+            if int(a["maze_size"]) == size
+        ]
+        if any(int(a["maze_size"]) != int(b["maze_size"]) for a, b in paired):
+            raise ValueError("paired results disagree on maze-size strata")
+        values = np.asarray(
+            [float(a["success"]) - float(b["success"]) for a, b in paired],
+            dtype=np.float64,
+        )
+        rounded = np.rint(values).astype(np.int64)
+        if (
+            not np.allclose(values, rounded, rtol=0.0, atol=0.0)
+            or not np.isin(rounded, (-1, 0, 1)).all()
+        ):
+            raise ValueError("exact success bootstrap requires binary outcomes")
+        probabilities = np.asarray(
+            [
+                np.mean(rounded == -1),
+                np.mean(rounded == 0),
+                np.mean(rounded == 1),
+            ],
+            dtype=np.float64,
+        )
+        raw_stratum = np.polynomial.polynomial.polypow(probabilities, len(rounded))
+        stratum = np.zeros(2 * len(rounded) + 1, dtype=np.float64)
+        stratum[: len(raw_stratum)] = raw_stratum
+        stratum /= stratum.sum()
+        distribution = np.convolve(distribution, stratum)
+        distribution /= distribution.sum()
+        support_offset += len(rounded)
+
+    if support_offset != total or len(distribution) != 2 * total + 1:
+        raise AssertionError("exact bootstrap support does not match task count")
+    cumulative = np.cumsum(distribution)
+    cumulative[-1] = 1.0
+    support = (np.arange(len(distribution), dtype=np.float64) - total) / total
+
+    def quantile(probability: float) -> float:
+        index = int(np.searchsorted(cumulative, probability, side="left"))
+        return float(support[min(index, len(support) - 1)])
+
+    return {
+        "delta": delta_sr(candidate, control),
+        "ci_low": quantile(alpha / 2.0),
+        "ci_high": quantile(1.0 - alpha / 2.0),
+        "alpha": float(alpha),
+        "confidence_level": float(1.0 - alpha),
+        "interval_engine": "exact_stratified_empirical_bootstrap",
+        "monte_carlo_samples": 0,
+        "support_points": int(len(distribution)),
+    }
+
+
 def compute_per_decision(result: dict[str, Any]) -> dict[str, float]:
     decisions = max(sum(int(row["decision_count"]) for row in result["tasks"]), 1)
     names = ("plan_transitions", "planner_forward_calls", "node_expansions")
@@ -196,6 +322,7 @@ def mean(values: Iterable[float]) -> float:
 __all__ = [
     "compute_per_decision",
     "delta_sr",
+    "exact_stratified_paired_bootstrap",
     "load_result",
     "mean",
     "screen_planner_seed",

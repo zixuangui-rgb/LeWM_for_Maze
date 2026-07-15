@@ -8,10 +8,10 @@ from final_closure.common import sha256_file
 from vector_jepa_planner_frontier.common import method_by_name
 from vector_jepa_planner_full900_screen.analysis import (
     delta_sr,
+    exact_stratified_paired_bootstrap,
     load_result,
     screen_planner_seed,
     sr,
-    stratified_paired_bootstrap,
 )
 from vector_jepa_planner_full900_screen.common import (
     atomic_json_dump,
@@ -22,6 +22,7 @@ from vector_jepa_planner_full900_screen.common import (
     validate_lock,
 )
 from vector_jepa_planner_full900_screen.methods import (
+    component_parity_audits,
     direct_control_name,
     effective_method,
     validate_q1_selection,
@@ -53,6 +54,13 @@ def main() -> None:
         raise ValueError("locked Bonferroni comparison family has drifted")
     adjusted_alpha = config.analysis.familywise_alpha / comparison_count
     input_sha256s: dict[str, str] = {}
+    component_parity = component_parity_audits(
+        config,
+        candidates=("q2b_vector_dts", "q2b_bidirectional"),
+        backbone_seeds=(42,),
+        planner_seeds=(config.replication.screen_planner_seeds[0],),
+        include_dts_secondary_control=True,
+    )
 
     def load_and_record(method, action: str):
         planner_seed = screen_planner_seed(method)
@@ -95,24 +103,20 @@ def main() -> None:
             for action in config.replication.action_selections
         }
         system = {
-            action: stratified_paired_bootstrap(
+            action: exact_stratified_paired_bootstrap(
                 candidate_results[action],
                 b0[action],
-                samples=config.analysis.bootstrap_samples,
-                seed=config.analysis.bootstrap_seed + index,
                 alpha=adjusted_alpha,
             )
-            for index, action in enumerate(config.replication.action_selections)
+            for action in config.replication.action_selections
         }
         mechanism = {
-            action: stratified_paired_bootstrap(
+            action: exact_stratified_paired_bootstrap(
                 candidate_results[action],
                 control_results[action],
-                samples=config.analysis.bootstrap_samples,
-                seed=config.analysis.bootstrap_seed + 10 + index,
                 alpha=adjusted_alpha,
             )
-            for index, action in enumerate(config.replication.action_selections)
+            for action in config.replication.action_selections
         }
         q1 = role.phase == "Q1"
         corrected_pass = (
@@ -200,6 +204,7 @@ def main() -> None:
         "selection_data": "seed42_full900_development",
         "multiplicity": {
             "method": config.analysis.multiplicity_method,
+            "interval_engine": config.gates.screen_interval_engine,
             "familywise_alpha": config.analysis.familywise_alpha,
             "comparison_count": comparison_count,
             "per_comparison_alpha": adjusted_alpha,
@@ -208,6 +213,7 @@ def main() -> None:
         "corrected_leader": corrected[0]["method"] if corrected else None,
         "unmasked_leader": unmasked[0]["method"] if unmasked else None,
         "candidate_audits": audits,
+        "component_parity_audits": component_parity,
         "input_sha256s": dict(sorted(input_sha256s.items())),
         "closed_without_shortlist": not shortlist,
     }

@@ -27,7 +27,9 @@ def parse_args() -> argparse.Namespace:
         "--config",
         default="vector_jepa_planner_full900_screen/configs/default.json",
     )
-    parser.add_argument("--check", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--check", action="store_true")
+    mode.add_argument("--replace-before-run", action="store_true")
     return parser.parse_args()
 
 
@@ -54,8 +56,9 @@ def manifest_record(path: str | Path) -> dict[str, Any]:
             )
         },
         "unique_task_hashes": len({str(row["task_hash"]) for row in rows}),
-        "unique_topology_hashes": len(
-            {str(row.get("topology_hash", row["task_hash"])) for row in rows}
+        "unique_layout_hashes": len({str(row["layout_hash"]) for row in rows}),
+        "unique_topologies": len(
+            {(int(row["maze_size"]), int(row["topology_seed"])) for row in rows}
         ),
     }
 
@@ -86,7 +89,8 @@ def build_lock(config_path: str | Path) -> dict[str, Any]:
         "amendment_after": artifact_record(config.paths.amendment_after),
         **{name: artifact_record(path) for name, path in document_paths.items()},
         "method_config": artifact_record(config_path),
-        "environment_lock": artifact_record("pyproject.toml"),
+        "environment_spec": artifact_record("pyproject.toml"),
+        "environment_lock": artifact_record("uv.lock"),
         "train_manifest": manifest_record(config.paths.train_manifest),
         "development_manifest": manifest_record(config.paths.development_manifest),
         "validation_manifest": manifest_record(config.paths.validation_manifest),
@@ -113,6 +117,30 @@ def main() -> None:
         validate_lock(config, load_json(lock_path))
         print(f"protocol lock verified: {lock_path}")
         return
+    if lock_path.exists() and not args.replace_before_run:
+        raise FileExistsError(
+            "protocol lock is immutable; use --replace-before-run only before "
+            "any formal artifact exists"
+        )
+    if args.replace_before_run:
+        run_root = resolve_path(config.paths.run_root)
+        component_root = resolve_path(
+            config.paths.component_training_template.format(
+                method="probe", backbone_seed=0, planner_seed=0
+            )
+        ).parent
+        formal_files = [
+            path
+            for root in (run_root, component_root)
+            if root.exists()
+            for path in root.rglob("*")
+            if path.is_file()
+        ]
+        if formal_files:
+            raise RuntimeError(
+                "cannot replace a protocol lock after formal artifacts exist: "
+                f"{formal_files[:5]}"
+            )
     value = build_lock(args.config)
     atomic_json_dump(lock_path, value)
     validate_lock(config, load_json(lock_path))

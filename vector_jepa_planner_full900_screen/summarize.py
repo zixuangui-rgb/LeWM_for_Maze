@@ -13,6 +13,7 @@ from vector_jepa_planner_frontier.common import method_by_name
 from vector_jepa_planner_full900_screen.analysis import load_result
 from vector_jepa_planner_full900_screen.common import (
     atomic_json_dump,
+    atomic_text_dump,
     load_config,
     load_json,
     resolve_path,
@@ -20,6 +21,7 @@ from vector_jepa_planner_full900_screen.common import (
     validate_lock,
 )
 from vector_jepa_planner_full900_screen.methods import (
+    component_parity_audits,
     direct_control_name,
     effective_method,
     validate_final_selection,
@@ -84,6 +86,9 @@ def _nested_tasks(
         averaged = []
         for rows in zip(*(run["tasks"] for run in runs), strict=True):
             base = rows[0]
+            auxiliary_names = sorted(
+                set().union(*(set(row.get("auxiliary", {})) for row in rows))
+            )
             averaged.append(
                 {
                     "task_id": base["task_id"],
@@ -101,8 +106,25 @@ def _nested_tasks(
                     "path_length": float(
                         np.mean([_task_metric(row, "path_length") for row in rows])
                     ),
+                    "decision_count": float(
+                        np.mean([float(row["decision_count"]) for row in rows])
+                    ),
                     "assistance_rate": float(
                         np.mean([_task_metric(row, "assistance_rate") for row in rows])
+                    ),
+                    "auxiliary": {
+                        name: float(
+                            np.mean(
+                                [
+                                    float(row.get("auxiliary", {}).get(name, 0.0))
+                                    for row in rows
+                                ]
+                            )
+                        )
+                        for name in auxiliary_names
+                    },
+                    "episode_seconds": float(
+                        np.mean([float(row["episode_seconds"]) for row in rows])
                     ),
                 }
             )
@@ -121,43 +143,97 @@ def _split(rows: list[dict[str, Any]], split: str) -> list[dict[str, Any]]:
 
 
 def _aggregate(tasks: dict[int, list[dict[str, Any]]]) -> dict[str, Any]:
-    output: dict[str, Any] = {}
-    for split in ("overall", "seen", "ood"):
+    compute_names = (
+        "plan_transitions",
+        "assist_transitions",
+        "total_transitions",
+        "planner_forward_calls",
+        "assist_forward_calls",
+        "node_expansions",
+        "candidate_sequences",
+        "duplicate_candidates",
+        "verifier_forward_calls",
+        "reachability_forward_calls",
+        "ranker_forward_calls",
+        "proposal_forward_calls",
+        "join_forward_calls",
+        "dts_forward_calls",
+    )
+
+    def summarize_groups(groups: dict[int, list[dict[str, Any]]]) -> dict[str, Any]:
         per_backbone = []
-        for seed, raw_rows in tasks.items():
-            rows = _split(raw_rows, split)
+        for seed, rows in groups.items():
             path_sum = max(sum(float(row["path_length"]) for row in rows), 1.0)
-            per_backbone.append(
+            decision_sum = max(sum(float(row["decision_count"]) for row in rows), 1.0)
+            summary = {
+                "backbone_seed": seed,
+                "sr": float(np.mean([row["success"] for row in rows])),
+                "spl": float(np.mean([row["spl"] for row in rows])),
+                "loop_or_cycle_rate": float(
+                    np.mean([row["loop_or_cycle"] for row in rows])
+                ),
+                "invalid_rate": float(
+                    sum(float(row["invalid_actions"]) for row in rows) / path_sum
+                ),
+                "assistance_rate": float(
+                    np.mean([row["assistance_rate"] for row in rows])
+                ),
+                "episode_seconds_per_task": float(
+                    np.mean([row["episode_seconds"] for row in rows])
+                ),
+            }
+            summary.update(
                 {
-                    "backbone_seed": seed,
-                    "sr": float(np.mean([row["success"] for row in rows])),
-                    "spl": float(np.mean([row["spl"] for row in rows])),
-                    "loop_or_cycle_rate": float(
-                        np.mean([row["loop_or_cycle"] for row in rows])
-                    ),
-                    "invalid_rate": float(
-                        sum(float(row["invalid_actions"]) for row in rows) / path_sum
-                    ),
-                    "assistance_rate": float(
-                        np.mean([row["assistance_rate"] for row in rows])
-                    ),
+                    f"{name}_per_decision": float(
+                        sum(float(row["auxiliary"].get(name, 0.0)) for row in rows)
+                        / decision_sum
+                    )
+                    for name in compute_names
                 }
             )
+            per_backbone.append(summary)
         metric_names = (
             "sr",
             "spl",
             "loop_or_cycle_rate",
             "invalid_rate",
             "assistance_rate",
+            "episode_seconds_per_task",
+            *(f"{name}_per_decision" for name in compute_names),
         )
-        output[split] = {
+        output = {
             name: {
                 "mean": float(np.mean([row[name] for row in per_backbone])),
-                "sd": float(np.std([row[name] for row in per_backbone], ddof=1)),
+                "sd": float(
+                    np.std(
+                        [row[name] for row in per_backbone],
+                        ddof=1 if len(per_backbone) > 1 else 0,
+                    )
+                ),
             }
             for name in metric_names
         }
-        output[split]["per_backbone"] = per_backbone
+        output["per_backbone"] = per_backbone
+        output["task_count_per_backbone"] = len(next(iter(groups.values())))
+        return output
+
+    output = {
+        split: summarize_groups(
+            {seed: _split(rows, split) for seed, rows in tasks.items()}
+        )
+        for split in ("overall", "seen", "ood")
+    }
+    output["by_size"] = {
+        str(size): summarize_groups(
+            {
+                seed: [row for row in rows if int(row["maze_size"]) == size]
+                for seed, rows in tasks.items()
+            }
+        )
+        for size in sorted(
+            {int(row["maze_size"]) for rows in tasks.values() for row in rows}
+        )
+    }
     return output
 
 
@@ -252,6 +328,9 @@ def _nested_bootstrap(
 
 
 def _markdown(payload: dict[str, Any]) -> str:
+    def metric_cell(metric: dict[str, float], digits: int = 4) -> str:
+        return f"{metric['mean']:.{digits}f} ({metric['sd']:.{digits}f})"
+
     lines = [
         "# Vector-JEPA Planner Full-900 Screen Results",
         "",
@@ -263,8 +342,11 @@ def _markdown(payload: dict[str, Any]) -> str:
         f"Final winner: `{payload['winner']}`",
         f"Direct control: `{payload['direct_control']}`",
         "",
-        "| Protocol | Method | SR | Seen SR | OOD SR | SPL |",
-        "|---|---|---:|---:|---:|---:|",
+        (
+            "| Protocol | Method | SR mean (SD) | Seen SR | OOD SR | SPL | "
+            "Loop | Invalid | Assist | Plan trans/decision |"
+        ),
+        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for action, methods in payload["results"].items():
         for name, result in methods.items():
@@ -274,14 +356,62 @@ def _markdown(payload: dict[str, Any]) -> str:
                     [
                         action,
                         name,
-                        f"{result['overall']['sr']['mean']:.4f}",
-                        f"{result['seen']['sr']['mean']:.4f}",
-                        f"{result['ood']['sr']['mean']:.4f}",
-                        f"{result['overall']['spl']['mean']:.4f}",
+                        metric_cell(result["overall"]["sr"]),
+                        metric_cell(result["seen"]["sr"]),
+                        metric_cell(result["ood"]["sr"]),
+                        metric_cell(result["overall"]["spl"]),
+                        metric_cell(result["overall"]["loop_or_cycle_rate"]),
+                        metric_cell(result["overall"]["invalid_rate"]),
+                        metric_cell(result["overall"]["assistance_rate"]),
+                        metric_cell(
+                            result["overall"]["plan_transitions_per_decision"], 2
+                        ),
                     ]
                 )
                 + " |"
             )
+    sizes = [str(size) for size in range(9, 26, 2)]
+    lines.extend(
+        [
+            "",
+            "## SR By Maze Size",
+            "",
+            "| Protocol | Method | " + " | ".join(sizes) + " |",
+            "|---|---|" + "---:|" * len(sizes),
+        ]
+    )
+    for action, methods in payload["results"].items():
+        for name, result in methods.items():
+            cells = [metric_cell(result["by_size"][size]["sr"]) for size in sizes]
+            lines.append(f"| {action} | {name} | " + " | ".join(cells) + " |")
+    lines.extend(
+        [
+            "",
+            "## Compute Per Decision",
+            "",
+            (
+                "| Protocol | Method | Plan | Assist | Planner calls | Nodes | "
+                "Proposal | Verifier | Reach | Join | DTS | Ranker |"
+            ),
+            "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        ]
+    )
+    compute_columns = (
+        "plan_transitions_per_decision",
+        "assist_transitions_per_decision",
+        "planner_forward_calls_per_decision",
+        "node_expansions_per_decision",
+        "proposal_forward_calls_per_decision",
+        "verifier_forward_calls_per_decision",
+        "reachability_forward_calls_per_decision",
+        "join_forward_calls_per_decision",
+        "dts_forward_calls_per_decision",
+        "ranker_forward_calls_per_decision",
+    )
+    for action, methods in payload["results"].items():
+        for name, result in methods.items():
+            cells = [metric_cell(result["overall"][key], 2) for key in compute_columns]
+            lines.append(f"| {action} | {name} | " + " | ".join(cells) + " |")
     lines.extend(["", "## Paired Effects", ""])
     for action, comparisons in payload["paired_effects"].items():
         for comparison, splits in comparisons.items():
@@ -315,8 +445,8 @@ def main() -> None:
     output_json = resolve_path(config.paths.run_root) / "summary.json"
     output_md = resolve_path(config.paths.run_root) / "REPORT.md"
     closure_path = resolve_path(config.paths.p8_selection)
-    if any(path.exists() for path in (output_json, output_md, closure_path)):
-        raise FileExistsError("final summary and closure artifacts are immutable")
+    if closure_path.exists():
+        raise FileExistsError("the completed final summary is immutable")
     if winner_name is None:
         payload = {
             "schema": "vector-jepa-full900-screen-summary-v1",
@@ -328,6 +458,7 @@ def main() -> None:
             "direct_control": None,
             "results": {},
             "paired_effects": {},
+            "component_parity_audits": [],
             "selection_records": {
                 "q1_parent_sha256": sha256_file(
                     resolve_path(config.paths.p2_selection)
@@ -350,6 +481,12 @@ def main() -> None:
         baseline = method_by_name(config, "b0_legacy_l2_cem")
         methods = list(
             {method.name: method for method in (baseline, direct, winner)}.values()
+        )
+        component_parity = component_parity_audits(
+            config,
+            candidates=(winner.name,),
+            backbone_seeds=config.replication.final_backbone_seeds,
+            planner_seeds=_planner_seed_values(config, winner),
         )
         results: dict[str, Any] = defaultdict(dict)
         task_cache: dict[tuple[str, str], dict[int, list[dict[str, Any]]]] = {}
@@ -411,6 +548,7 @@ def main() -> None:
             ),
             "results": dict(results),
             "paired_effects": dict(paired),
+            "component_parity_audits": component_parity,
             "input_result_sha256s": dict(sorted(input_result_sha256s.items())),
             "selection_records": {
                 "q1_parent_sha256": sha256_file(
@@ -424,9 +562,17 @@ def main() -> None:
                 ),
             },
         }
-    atomic_json_dump(output_json, payload)
-    output_md.parent.mkdir(parents=True, exist_ok=True)
-    output_md.write_text(_markdown(payload), encoding="utf-8")
+    report = _markdown(payload)
+    if output_json.exists():
+        if load_json(output_json) != payload:
+            raise ValueError("partial summary JSON does not match recomputation")
+    else:
+        atomic_json_dump(output_json, payload)
+    if output_md.exists():
+        if output_md.read_text(encoding="utf-8") != report:
+            raise ValueError("partial summary Markdown does not match recomputation")
+    else:
+        atomic_text_dump(output_md, report)
     closure = {
         "schema": "vector-jepa-full900-screen-closure-v1",
         "status": "permanently_closed",

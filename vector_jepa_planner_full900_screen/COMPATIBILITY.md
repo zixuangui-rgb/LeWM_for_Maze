@@ -55,5 +55,6 @@ Git仓库不包含大体积checkpoint。本地静态测试只能验证路径、s
 
 新包从仓库根目录运行，复用 `hdwm`、`final_closure` 和
 `vector_jepa_planner_frontier` 的底层算法实现。它不修改 `pyproject.toml`，避免改变
-旧协议代码指纹。所有命令必须在仓库根目录通过 `python -m` 或 `uv run python -m`
-执行。
+旧协议代码指纹；新协议自己的lock会同时记录 `pyproject.toml` 和 `uv.lock`，两者也
+进入新协议代码指纹。所有命令必须在仓库根目录通过 `python -m` 或
+`uv run python -m` 执行。
