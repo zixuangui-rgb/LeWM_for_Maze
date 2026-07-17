@@ -1,0 +1,483 @@
+{
+  "analysis_spec": {
+    "analysis": {
+      "bootstrap_samples": 10000,
+      "borderline_delta": 0.02,
+      "diagnostic_batches": 32,
+      "familywise_alpha": 0.05,
+      "max_secondary_drop": 0.02,
+      "minimum_confirmation_backbones": 10,
+      "minimum_ood_delta": 0.05,
+      "minimum_overall_delta": 0.04,
+      "primary_endpoints": [
+        "corrected_overall_sr",
+        "corrected_ood_sr"
+      ],
+      "reachability_max_brier": 0.25,
+      "reachability_max_ece": 0.15,
+      "reachability_max_monotonic_violation": 0.05,
+      "reachability_min_auroc": 0.65,
+      "required_power": 0.8,
+      "screen_regular_delta": 0.04,
+      "screen_strong_delta": 0.06,
+      "trajectory_diagnostic_batches": 8,
+      "trajectory_diagnostic_contexts": 8
+    },
+    "baseline_provenance_sha256": "82a199be343372c09a280141192297294df86068feefc26b96a530c78d99965f",
+    "bootstrap_schedule_sha256": "4b97905561f166c7b6779263d9931839aad7772d19078fe24ee65d33e24d92c5",
+    "checkpoint_selection": "final_step",
+    "manifests": {
+      "cal": {
+        "count": 140,
+        "counts_by_size": {
+          "11": 20,
+          "13": 20,
+          "15": 20,
+          "17": 20,
+          "19": 20,
+          "21": 20,
+          "9": 20
+        },
+        "path": "distance_head_study/manifests/d_cal.jsonl",
+        "sha256": "6809bf93d6698aefc781395882a8ade43445675573291c27aa4fb7fbd628680d"
+      },
+      "confirm": {
+        "count": 900,
+        "counts_by_size": {
+          "11": 100,
+          "13": 100,
+          "15": 100,
+          "17": 100,
+          "19": 100,
+          "21": 100,
+          "23": 100,
+          "25": 100,
+          "9": 100
+        },
+        "path": "distance_head_study/manifests/d_confirm.jsonl",
+        "sha256": "36834e3413c47ad4bf569249067f617440e63c0190d0a82c26b9e236aa504f82"
+      },
+      "legacy": {
+        "count": 900,
+        "counts_by_size": {
+          "11": 100,
+          "13": 100,
+          "15": 100,
+          "17": 100,
+          "19": 100,
+          "21": 100,
+          "23": 100,
+          "25": 100,
+          "9": 100
+        },
+        "path": "data/splits/unisize_eval_manifest.jsonl",
+        "sha256": "210e2de5aa5d9a688ff2fe60c4e8b85e11fa10b570d0ca3f4e72d8f173dbb8d9"
+      },
+      "screen": {
+        "count": 140,
+        "counts_by_size": {
+          "11": 20,
+          "13": 20,
+          "15": 20,
+          "17": 20,
+          "19": 20,
+          "21": 20,
+          "9": 20
+        },
+        "path": "distance_head_study/manifests/d_screen.jsonl",
+        "sha256": "3171932682151283e887288ee5523aad5cc3949dc69829260068b419fd9de792"
+      },
+      "select": {
+        "count": 210,
+        "counts_by_size": {
+          "11": 30,
+          "13": 30,
+          "15": 30,
+          "17": 30,
+          "19": 30,
+          "21": 30,
+          "9": 30
+        },
+        "path": "distance_head_study/manifests/d_select.jsonl",
+        "sha256": "f0739a6ba62a805ddd1f8c18b40e8da522b5c8fd88d47ef77d6dfa1a37787056"
+      },
+      "stress": {
+        "count": 150,
+        "counts_by_size": {
+          "27": 50,
+          "29": 50,
+          "31": 50
+        },
+        "path": "distance_head_study/manifests/d_stress.jsonl",
+        "sha256": "64e44f07d8829676a5eb8cf2d21fcdb516db94edb40aee6ab76f02b547d9c095"
+      },
+      "train": {
+        "count": 2800,
+        "counts_by_size": {
+          "11": 400,
+          "13": 400,
+          "15": 400,
+          "17": 400,
+          "19": 400,
+          "21": 400,
+          "9": 400
+        },
+        "path": "data/splits/unisize_train_manifest.jsonl",
+        "sha256": "1c477db243752a614d569941da6ca9be5c8fb19099295769c1c4dce9250a05f6"
+      }
+    },
+    "method_catalog_sha256": "19d0f097b3d5ba1f2713515828d4e382734637026318b13659ac693fcf931a47",
+    "planner": {
+      "action_ids": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "action_protocols": [
+        "corrected_v1",
+        "unmasked"
+      ],
+      "cem_iters": 1,
+      "history_size": 3,
+      "horizon": 12,
+      "max_steps": 128,
+      "model_action_vocab_size": 5,
+      "momentum": 0.1,
+      "num_candidates": 64,
+      "num_elites": 8,
+      "reference_transitions": 768,
+      "rollout_semantics": "legacy_warmup_v1"
+    },
+    "protocol_id": "procgen-maze-distance-head-staged-v1",
+    "schema": "distance-head-analysis-spec-v1",
+    "seed_registry_sha256": "2af9c8751c6d751aec9c8abebc6725420b432a398ffcca358323c0a271562cc2",
+    "seeds": {
+      "bootstrap_seed": 2026071703,
+      "confirmation_head_seed": 0,
+      "historical_backbones": [
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61
+      ],
+      "ordered_confirmation_backbones": [
+        1001,
+        1002,
+        1003,
+        1004,
+        1005,
+        1006,
+        1007,
+        1008,
+        1009,
+        1010,
+        1011,
+        1012,
+        1013,
+        1014,
+        1015,
+        1016,
+        1017,
+        1018,
+        1019,
+        1020,
+        1021,
+        1022,
+        1023,
+        1024,
+        1025,
+        1026,
+        1027,
+        1028,
+        1029,
+        1030,
+        1031,
+        1032
+      ],
+      "run_order_seed": 2026071702,
+      "sample_schedule_seed": 2026071701,
+      "screen_backbones": [
+        42
+      ],
+      "screen_head_seeds": [
+        0,
+        1,
+        2
+      ],
+      "select_backbones": [
+        42,
+        43,
+        44
+      ],
+      "select_head_seeds": [
+        0,
+        1
+      ]
+    },
+    "selection_uses_ood_sizes": false,
+    "source_analysis_spec_sha256": "ffb21dc0e25b1d400ddfe1ff7c4df7b6b3460b891db87e09b9e4806ade92de30",
+    "source_config_sha256": "221b797f6c49b4fa4c880a5a2fa483583d004451f41d6a642a5bd2e2b00b95d9",
+    "source_lock_sha256": "2e6aa394dfa289556bc6161fdb4a98a3fe70050844305a9876016450f70c1d44",
+    "splits": {
+      "cal_per_size": 20,
+      "confirm_per_size": 100,
+      "screen_per_size": 20,
+      "select_per_size": 30,
+      "stress_per_size": 50,
+      "stress_sizes": [
+        27,
+        29,
+        31
+      ],
+      "train_sizes": [
+        9,
+        11,
+        13,
+        15,
+        17,
+        19,
+        21
+      ]
+    },
+    "study_role": "staged_distance_head_confirmatory_study",
+    "training": {
+      "calibration_gradient_ratio": 0.5,
+      "calibration_weight_clip": [
+        0.1,
+        10.0
+      ],
+      "candidate_sets_per_backbone": 2048,
+      "checkpoint_selection": "final_step",
+      "deterministic": true,
+      "distance_bins": [
+        2,
+        4,
+        8,
+        12,
+        20,
+        32,
+        48,
+        128
+      ],
+      "effective_batch_size": 512,
+      "final_lr_ratio": 0.1,
+      "grad_clip": 1.0,
+      "hard_negative_folds": 5,
+      "horizons": [
+        1,
+        3,
+        5,
+        8,
+        11
+      ],
+      "joint_backbone_learning_rate": 0.0001,
+      "learning_rate": 0.001,
+      "microbatch_size": 128,
+      "pairs_per_topology": 64,
+      "reachability_budgets": [
+        1,
+        2,
+        4,
+        8,
+        16,
+        32,
+        64,
+        128
+      ],
+      "steps": 30000,
+      "trajectory_candidates": 64,
+      "trajectory_contexts_per_step": 16,
+      "warmup_fraction": 0.05,
+      "weight_decay": 1e-05
+    }
+  },
+  "analysis_spec_sha256": "bac528e8c2dedcc4c709026560265ff29db97a78f75bc1ac687b64d7fe7169cd",
+  "bootstrap_schedule_regenerates": true,
+  "catalog_audit": {
+    "dynamic_count": 30,
+    "method_count": 45,
+    "root_count": 10,
+    "static_derived_count": 5
+  },
+  "code_fingerprint": "f0c5e0aeba22c114b1714e1fc87178376a0af00bed1028c823ae129d0cc73fe0",
+  "confirmation_seed_audit": {
+    "historical_count": 20,
+    "historical_sha256": "1c772b361c4678c71f6fca8f499d6308d5717865fa3dfbfc76f49ecb76f9ee03",
+    "ordered_confirmation": [
+      1001,
+      1002,
+      1003,
+      1004,
+      1005,
+      1006,
+      1007,
+      1008,
+      1009,
+      1010,
+      1011,
+      1012,
+      1013,
+      1014,
+      1015,
+      1016,
+      1017,
+      1018,
+      1019,
+      1020,
+      1021,
+      1022,
+      1023,
+      1024,
+      1025,
+      1026,
+      1027,
+      1028,
+      1029,
+      1030,
+      1031,
+      1032
+    ],
+    "overlap": []
+  },
+  "confirmatory_model_selection": false,
+  "protocol_id": "procgen-maze-distance-head-staged-v1",
+  "protocol_lock_sha256": "5e6a993942a9711cecab56a90ccc82d1e0b6ca2878492b903adcb205731d6aa1",
+  "schema": "distance-head-protocol-lock-v1",
+  "split_audit": {
+    "calibration_layouts_are_train_subset": true,
+    "confirm_count": 900,
+    "heldout_overlap_counts": {
+      "confirm__stress": 0,
+      "screen__confirm": 0,
+      "screen__select": 0,
+      "screen__stress": 0,
+      "select__confirm": 0,
+      "select__stress": 0,
+      "train__confirm": 0,
+      "train__screen": 0,
+      "train__select": 0,
+      "train__stress": 0
+    },
+    "manifest_records": {
+      "cal": {
+        "count": 140,
+        "counts_by_size": {
+          "11": 20,
+          "13": 20,
+          "15": 20,
+          "17": 20,
+          "19": 20,
+          "21": 20,
+          "9": 20
+        },
+        "path": "distance_head_study/manifests/d_cal.jsonl",
+        "sha256": "6809bf93d6698aefc781395882a8ade43445675573291c27aa4fb7fbd628680d"
+      },
+      "confirm": {
+        "count": 900,
+        "counts_by_size": {
+          "11": 100,
+          "13": 100,
+          "15": 100,
+          "17": 100,
+          "19": 100,
+          "21": 100,
+          "23": 100,
+          "25": 100,
+          "9": 100
+        },
+        "path": "distance_head_study/manifests/d_confirm.jsonl",
+        "sha256": "36834e3413c47ad4bf569249067f617440e63c0190d0a82c26b9e236aa504f82"
+      },
+      "legacy": {
+        "count": 900,
+        "counts_by_size": {
+          "11": 100,
+          "13": 100,
+          "15": 100,
+          "17": 100,
+          "19": 100,
+          "21": 100,
+          "23": 100,
+          "25": 100,
+          "9": 100
+        },
+        "path": "data/splits/unisize_eval_manifest.jsonl",
+        "sha256": "210e2de5aa5d9a688ff2fe60c4e8b85e11fa10b570d0ca3f4e72d8f173dbb8d9"
+      },
+      "screen": {
+        "count": 140,
+        "counts_by_size": {
+          "11": 20,
+          "13": 20,
+          "15": 20,
+          "17": 20,
+          "19": 20,
+          "21": 20,
+          "9": 20
+        },
+        "path": "distance_head_study/manifests/d_screen.jsonl",
+        "sha256": "3171932682151283e887288ee5523aad5cc3949dc69829260068b419fd9de792"
+      },
+      "select": {
+        "count": 210,
+        "counts_by_size": {
+          "11": 30,
+          "13": 30,
+          "15": 30,
+          "17": 30,
+          "19": 30,
+          "21": 30,
+          "9": 30
+        },
+        "path": "distance_head_study/manifests/d_select.jsonl",
+        "sha256": "f0739a6ba62a805ddd1f8c18b40e8da522b5c8fd88d47ef77d6dfa1a37787056"
+      },
+      "stress": {
+        "count": 150,
+        "counts_by_size": {
+          "27": 50,
+          "29": 50,
+          "31": 50
+        },
+        "path": "distance_head_study/manifests/d_stress.jsonl",
+        "sha256": "64e44f07d8829676a5eb8cf2d21fcdb516db94edb40aee6ab76f02b547d9c095"
+      },
+      "train": {
+        "count": 2800,
+        "counts_by_size": {
+          "11": 400,
+          "13": 400,
+          "15": 400,
+          "17": 400,
+          "19": 400,
+          "21": 400,
+          "9": 400
+        },
+        "path": "data/splits/unisize_train_manifest.jsonl",
+        "sha256": "1c477db243752a614d569941da6ca9be5c8fb19099295769c1c4dce9250a05f6"
+      }
+    },
+    "screen_count": 140,
+    "select_count": 210,
+    "stress_count": 150
+  },
+  "test_bfs_policy": "oracle_and_diagnostics_only"
+}

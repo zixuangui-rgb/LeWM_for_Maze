@@ -1,0 +1,558 @@
+{
+  "schema_version": 1,
+  "decision_aliases": {
+    "a_target_parent": "a_target_parent.json",
+    "a_sampling_parent": "a_sampling_parent.json",
+    "b_structural_winner": "b_structural_winner.json",
+    "b_parent": "b_parent.json",
+    "c_parent": "c_parent.json",
+    "finalist": "finalist_lock.json"
+  },
+  "methods": [
+    {
+      "name": "b_l2_cem",
+      "stage": "P0",
+      "role": "baseline",
+      "description": "Exact pooled-latent L2 receding-CEM anchor.",
+      "resolved": {
+        "name": "b_l2_cem",
+        "stage": "P0",
+        "role": "baseline",
+        "description": "Exact pooled-latent L2 receding-CEM anchor.",
+        "head": null,
+        "objectives": null,
+        "planner": {"kind": "categorical_cem", "cost": "latent_l2"},
+        "trainable": false
+      }
+    },
+    {
+      "name": "b_dh_cem",
+      "stage": "P0",
+      "role": "baseline",
+      "description": "Protocol-repaired historical Simple DistanceHead with final-step selection.",
+      "resolved": {
+        "name": "b_dh_cem",
+        "stage": "P0",
+        "role": "baseline",
+        "description": "Protocol-repaired historical Simple DistanceHead with final-step selection.",
+        "head": {},
+        "objectives": {},
+        "planner": {}
+      }
+    },
+    {
+      "name": "b_dh_model_free",
+      "stage": "P0",
+      "role": "baseline",
+      "description": "True-next greedy diagnostic using the exact Simple DistanceHead checkpoint.",
+      "resolved": {
+        "name": "b_dh_model_free",
+        "stage": "P0",
+        "role": "baseline",
+        "description": "True-next greedy diagnostic using the exact Simple DistanceHead checkpoint.",
+        "head": {},
+        "objectives": null,
+        "planner": {"kind": "model_free_greedy"},
+        "trainable": false,
+        "checkpoint_owner": "b_dh_cem",
+        "confirmatory_eligible": false
+      }
+    },
+    {
+      "name": "b_dh_predictor_greedy",
+      "stage": "P0",
+      "role": "baseline",
+      "description": "Historical corrected-v1 predictor-greedy parity diagnostic using the exact Simple DistanceHead checkpoint; this preserves the legacy five-class fallback interface and is distinct from the action-aligned predicted-local diagnostic.",
+      "resolved": {
+        "name": "b_dh_predictor_greedy",
+        "stage": "P0",
+        "role": "baseline",
+        "description": "Historical corrected-v1 predictor-greedy parity diagnostic using the exact Simple DistanceHead checkpoint; this preserves the legacy five-class fallback interface and is distinct from the action-aligned predicted-local diagnostic.",
+        "head": {},
+        "objectives": null,
+        "planner": {"kind": "predictor_greedy"},
+        "trainable": false,
+        "checkpoint_owner": "b_dh_cem",
+        "confirmatory_eligible": false
+      }
+    },
+    {
+      "name": "o_dyn_true_rollout",
+      "stage": "P1",
+      "role": "oracle",
+      "description": "Learned DistanceHead on true environment rollout endpoints.",
+      "resolved": {
+        "name": "o_dyn_true_rollout",
+        "stage": "P1",
+        "role": "oracle",
+        "description": "Learned DistanceHead on true environment rollout endpoints.",
+        "head": {},
+        "objectives": null,
+        "planner": {},
+        "trainable": false,
+        "checkpoint_owner": "b_dh_cem",
+        "confirmatory_eligible": false,
+        "uses_test_bfs": false
+      }
+    },
+    {
+      "name": "o_score_true_bfs",
+      "stage": "P1",
+      "role": "oracle",
+      "description": "True rollout plus true BFS endpoint score within the fixed candidate set.",
+      "resolved": {
+        "name": "o_score_true_bfs",
+        "stage": "P1",
+        "role": "oracle",
+        "description": "True rollout plus true BFS endpoint score within the fixed candidate set.",
+        "head": null,
+        "objectives": null,
+        "planner": {},
+        "trainable": false,
+        "confirmatory_eligible": false,
+        "uses_test_bfs": true
+      }
+    },
+    {
+      "name": "o_bfs1",
+      "stage": "P1",
+      "role": "oracle",
+      "description": "True one-step BFS action oracle outside the fixed candidate interface.",
+      "resolved": {
+        "name": "o_bfs1",
+        "stage": "P1",
+        "role": "oracle",
+        "description": "True one-step BFS action oracle outside the fixed candidate interface.",
+        "head": null,
+        "objectives": null,
+        "planner": {"kind": "model_free_greedy"},
+        "trainable": false,
+        "confirmatory_eligible": false,
+        "uses_test_bfs": true
+      }
+    },
+    {
+      "name": "a1_log",
+      "stage": "P2",
+      "role": "candidate",
+      "description": "Replace per-maze legacy normalization with globally invertible log1p BFS targets.",
+      "parent": "b_dh_cem",
+      "overrides": {"head.target": "log1p"},
+      "declared_changes": ["head.target"]
+    },
+    {
+      "name": "a2_distance_balanced",
+      "stage": "P2",
+      "role": "candidate",
+      "description": "Distance-bin balanced sampling on the locked target parent.",
+      "parent": "@a_target_parent",
+      "overrides": {"sampler": "distance_balanced"},
+      "declared_changes": ["sampler"]
+    },
+    {
+      "name": "a3_full_horizon",
+      "stage": "P2",
+      "role": "candidate",
+      "description": "Broad temporal-separation sampling on the locked target parent.",
+      "parent": "@a_target_parent",
+      "overrides": {"sampler": "full_horizon"},
+      "declared_changes": ["sampler"]
+    },
+    {
+      "name": "b1_listwise",
+      "stage": "P2",
+      "role": "candidate",
+      "description": "Tie-aware all-valid-action listwise objective.",
+      "parent": "@a_sampling_parent",
+      "overrides": {"objectives.listwise": 1.0},
+      "declared_changes": ["objectives.listwise"]
+    },
+    {
+      "name": "b2_bellman",
+      "stage": "P2",
+      "role": "candidate",
+      "description": "Raw-step one-step Bellman consistency objective.",
+      "parent": "@a_sampling_parent",
+      "overrides": {"objectives.bellman": 1.0},
+      "declared_changes": ["objectives.bellman"]
+    },
+    {
+      "name": "b3_multistep",
+      "stage": "P2",
+      "role": "candidate",
+      "description": "Shortest-path decomposition plus arbitrary triangle control.",
+      "parent": "@a_sampling_parent",
+      "overrides": {
+        "objectives.multistep": 1.0,
+        "objectives.triangle": 0.25
+      },
+      "declared_changes": ["objectives.multistep", "objectives.triangle"]
+    },
+    {
+      "name": "b5_local_structural",
+      "stage": "P2",
+      "role": "candidate",
+      "description": "Factorial local-plus-structural cell using the locked structural winner.",
+      "parent": "@b_structural_winner",
+      "overrides": {"objectives.listwise": 1.0},
+      "declared_changes": ["objectives.listwise"]
+    },
+    {
+      "name": "c1_predicted_listwise",
+      "stage": "P2",
+      "role": "candidate",
+      "description": "One-step predictor-latent action ordering objective.",
+      "parent": "@b_parent",
+      "overrides": {"objectives.predicted_listwise": 1.0},
+      "declared_changes": ["objectives.predicted_listwise"]
+    },
+    {
+      "name": "c2_dual_calibration",
+      "stage": "P2",
+      "role": "candidate",
+      "description": "Shared distance trunk with a true-versus-predicted calibration adapter.",
+      "parent": "c1_predicted_listwise",
+      "overrides": {"head.domain_adapter": true},
+      "declared_changes": ["head.domain_adapter"]
+    },
+    {
+      "name": "d1_trm_short",
+      "stage": "P2",
+      "role": "control",
+      "description": "Short-horizon trajectory-ranking control restricted to horizons 1 and 3.",
+      "parent": "@c_parent",
+      "overrides": {
+        "objectives.trajectory_listwise": 1.0,
+        "trajectory_horizons": [1, 3]
+      },
+      "declared_changes": ["objectives.trajectory_listwise", "trajectory_horizons"]
+    },
+    {
+      "name": "d2_trm_full",
+      "stage": "P2",
+      "role": "candidate",
+      "description": "Legacy-CEM-aligned ranking over 1/3/5/8/11 executed actions (2/4/6/9/12 rollout slots).",
+      "parent": "@c_parent",
+      "overrides": {
+        "objectives.trajectory_listwise": 1.0,
+        "trajectory_horizons": [1, 3, 5, 8, 11]
+      },
+      "declared_changes": ["objectives.trajectory_listwise", "trajectory_horizons"]
+    },
+    {
+      "name": "d3_trm_shuffle",
+      "stage": "P2",
+      "role": "control",
+      "description": "Trajectory-ranking negative control with shuffled candidate labels.",
+      "parent": "d2_trm_full",
+      "overrides": {"label_mode": "shuffled"},
+      "declared_changes": ["label_mode"]
+    },
+    {
+      "name": "d4_reachability",
+      "stage": "P2",
+      "role": "candidate",
+      "description": "Distance plus monotone multi-budget reachability prediction.",
+      "parent": "@c_parent",
+      "overrides": {
+        "head.output": "multitask",
+        "head.horizon_conditioned": true,
+        "objectives.reachability": 1.0
+      },
+      "declared_changes": [
+        "head.output",
+        "head.horizon_conditioned",
+        "objectives.reachability"
+      ]
+    },
+    {
+      "name": "r_loss_mae",
+      "stage": "reserve",
+      "role": "candidate",
+      "description": "MAE regression robustness representative.",
+      "parent": "@a_sampling_parent",
+      "overrides": {"head.regression_loss": "mae"},
+      "declared_changes": ["head.regression_loss"]
+    },
+    {
+      "name": "r_output_ordinal",
+      "stage": "reserve",
+      "role": "candidate",
+      "description": "Cumulative ordinal BFS-distance output.",
+      "parent": "@a_sampling_parent",
+      "overrides": {"head.output": "ordinal"},
+      "declared_changes": ["head.output"]
+    },
+    {
+      "name": "r_output_distribution",
+      "stage": "reserve",
+      "role": "candidate",
+      "description": "Distributional BFS-distance output with expected-distance scoring.",
+      "parent": "@a_sampling_parent",
+      "overrides": {"head.output": "distribution"},
+      "declared_changes": ["head.output"]
+    },
+    {
+      "name": "r_pairwise",
+      "stage": "reserve",
+      "role": "candidate",
+      "description": "Improving-versus-worse pairwise action ranking.",
+      "parent": "@a_sampling_parent",
+      "overrides": {"objectives.pairwise": 1.0},
+      "declared_changes": ["objectives.pairwise"]
+    },
+    {
+      "name": "r_delta",
+      "stage": "reserve",
+      "role": "candidate",
+      "description": "One-step raw BFS-distance delta regression.",
+      "parent": "@a_sampling_parent",
+      "overrides": {"objectives.delta": 1.0},
+      "declared_changes": ["objectives.delta"]
+    },
+    {
+      "name": "r_eikonal",
+      "stage": "reserve",
+      "role": "candidate",
+      "description": "Discrete Eikonal descent and local Lipschitz consistency.",
+      "parent": "@a_sampling_parent",
+      "overrides": {"objectives.eikonal": 1.0},
+      "declared_changes": ["objectives.eikonal"]
+    },
+    {
+      "name": "r_quasimetric",
+      "stage": "reserve",
+      "role": "candidate",
+      "description": "Asymmetric quasimetric parameterization with triangle structure.",
+      "parent": "@a_sampling_parent",
+      "overrides": {
+        "head.architecture": "quasimetric",
+        "objectives.triangle": 1.0
+      },
+      "declared_changes": ["head.architecture", "objectives.triangle"]
+    },
+    {
+      "name": "r_successor_contrastive",
+      "stage": "reserve",
+      "role": "candidate",
+      "description": "Temporal-order contrastive objective over multistep successors and arbitrary waypoints.",
+      "parent": "@a_sampling_parent",
+      "overrides": {"objectives.successor_contrastive": 1.0},
+      "declared_changes": ["objectives.successor_contrastive"]
+    },
+    {
+      "name": "r_arch_asymmetric",
+      "stage": "reserve",
+      "role": "candidate",
+      "description": "Asymmetric source-goal head capacity control.",
+      "parent": "@a_sampling_parent",
+      "overrides": {"head.architecture": "asymmetric"},
+      "declared_changes": ["head.architecture"]
+    },
+    {
+      "name": "r_arch_hierarchical_budget",
+      "stage": "reserve",
+      "role": "candidate",
+      "description": "Three-scale short/medium/long gated-expert head conditioned on planning horizon.",
+      "parent": "@a_sampling_parent",
+      "overrides": {
+        "head.architecture": "hierarchical",
+        "head.horizon_conditioned": true
+      },
+      "declared_changes": ["head.architecture", "head.horizon_conditioned"]
+    },
+    {
+      "name": "r_uncertainty",
+      "stage": "reserve",
+      "role": "candidate",
+      "description": "Heteroscedastic raw-distance uncertainty head for risk-aware scoring.",
+      "parent": "@c_parent",
+      "overrides": {
+        "head.uncertainty": true,
+        "objectives.uncertainty": 1.0
+      },
+      "declared_changes": ["head.uncertainty", "objectives.uncertainty"]
+    },
+    {
+      "name": "j0_cont_predictor",
+      "stage": "reserve",
+      "role": "control",
+      "description": "Predictor-only matched control: train the same head, but stop distance gradients before the backbone.",
+      "resolved": {
+        "name": "j0_cont_predictor",
+        "stage": "reserve",
+        "role": "control",
+        "description": "Predictor-only matched control: train the same head, but stop distance gradients before the backbone.",
+        "head": {},
+        "objectives": {"absolute": 1.0, "predicted_listwise": 1.0, "original_jepa": 1.0},
+        "training_scope": "predictor",
+        "initialization_parent": "b_dh_cem",
+        "planner": {}
+      }
+    },
+    {
+      "name": "j0_dist_predictor",
+      "stage": "reserve",
+      "role": "candidate",
+      "description": "Predictor-only joint distance treatment matched to continuation control.",
+      "parent": "j0_cont_predictor",
+      "overrides": {"distance_gradients_to_backbone": true},
+      "declared_changes": ["distance_gradients_to_backbone"]
+    },
+    {
+      "name": "j1_cont_projector",
+      "stage": "reserve",
+      "role": "control",
+      "description": "Projector-plus-predictor matched control with detached distance gradients.",
+      "resolved": {
+        "name": "j1_cont_projector",
+        "stage": "reserve",
+        "role": "control",
+        "description": "Projector-plus-predictor matched control with detached distance gradients.",
+        "head": {},
+        "objectives": {"absolute": 1.0, "predicted_listwise": 1.0, "original_jepa": 1.0},
+        "training_scope": "projector_predictor",
+        "initialization_parent": "b_dh_cem",
+        "planner": {}
+      }
+    },
+    {
+      "name": "j1_dist_projector",
+      "stage": "reserve",
+      "role": "candidate",
+      "description": "Projector-plus-predictor joint distance treatment.",
+      "parent": "j1_cont_projector",
+      "overrides": {"distance_gradients_to_backbone": true},
+      "declared_changes": ["distance_gradients_to_backbone"]
+    },
+    {
+      "name": "j2_cont_full",
+      "stage": "reserve",
+      "role": "control",
+      "description": "Full-backbone matched control with detached distance gradients.",
+      "resolved": {
+        "name": "j2_cont_full",
+        "stage": "reserve",
+        "role": "control",
+        "description": "Full-backbone matched control with detached distance gradients.",
+        "head": {},
+        "objectives": {"absolute": 1.0, "predicted_listwise": 1.0, "original_jepa": 1.0},
+        "training_scope": "full",
+        "initialization_parent": "b_dh_cem",
+        "planner": {}
+      }
+    },
+    {
+      "name": "j2_dist_full",
+      "stage": "reserve",
+      "role": "candidate",
+      "description": "Full-backbone joint distance treatment.",
+      "parent": "j2_cont_full",
+      "overrides": {"distance_gradients_to_backbone": true},
+      "declared_changes": ["distance_gradients_to_backbone"]
+    },
+    {
+      "name": "j3_rcaux_reach",
+      "stage": "reserve",
+      "role": "candidate",
+      "description": "RC-aux-style representation treatment with reachability and JEPA retention.",
+      "parent": "j1_dist_projector",
+      "overrides": {
+        "head.output": "multitask",
+        "head.horizon_conditioned": true,
+        "objectives.reachability": 1.0,
+        "initialization_mode": "compatible_shared"
+      },
+      "declared_changes": [
+        "head.output",
+        "head.horizon_conditioned",
+        "objectives.reachability",
+        "initialization_mode"
+      ]
+    },
+    {
+      "name": "p_path_integrated",
+      "stage": "reserve",
+      "role": "candidate",
+      "description": "Reuse the locked finalist head with path-integrated trajectory cost.",
+      "parent": "@c_parent",
+      "overrides": {
+        "planner.cost": "path_integrated",
+        "planner.path_weight": 1.0,
+        "reuse_parent_checkpoint": true,
+        "checkpoint_decision_alias": "c_parent"
+      },
+      "declared_changes": ["planner.cost", "planner.path_weight", "reuse_parent_checkpoint", "checkpoint_decision_alias"]
+    },
+    {
+      "name": "p_hybrid_l2",
+      "stage": "reserve",
+      "role": "candidate",
+      "description": "Reuse the locked finalist with a calibrated DistanceHead plus latent-L2 cost.",
+      "parent": "@c_parent",
+      "overrides": {
+        "planner.cost": "hybrid",
+        "planner.latent_l2_weight": 1.0,
+        "reuse_parent_checkpoint": true,
+        "checkpoint_decision_alias": "c_parent"
+      },
+      "declared_changes": ["planner.cost", "planner.latent_l2_weight", "reuse_parent_checkpoint", "checkpoint_decision_alias"]
+    },
+    {
+      "name": "p_reachability",
+      "stage": "reserve",
+      "role": "candidate",
+      "description": "Reuse D4 reachability outputs as a remaining-budget planning cost.",
+      "parent": "d4_reachability",
+      "overrides": {
+        "planner.cost": "reachability",
+        "planner.reachability_weight": 1.0,
+        "reuse_parent_checkpoint": true,
+        "checkpoint_owner": "d4_reachability"
+      },
+      "declared_changes": ["planner.cost", "planner.reachability_weight", "reuse_parent_checkpoint", "checkpoint_owner"]
+    },
+    {
+      "name": "p_risk_loop",
+      "stage": "reserve",
+      "role": "candidate",
+      "description": "Reuse the uncertainty head with uncertainty and latent revisit penalties.",
+      "parent": "r_uncertainty",
+      "overrides": {
+        "planner.cost": "risk_loop",
+        "planner.uncertainty_weight": 1.0,
+        "planner.loop_weight": 1.0,
+        "reuse_parent_checkpoint": true,
+        "checkpoint_owner": "r_uncertainty"
+      },
+      "declared_changes": ["planner.cost", "planner.uncertainty_weight", "planner.loop_weight", "reuse_parent_checkpoint", "checkpoint_owner"]
+    },
+    {
+      "name": "p_icem",
+      "stage": "reserve",
+      "role": "candidate",
+      "description": "Reuse the locked finalist with iCEM under the same transition cap.",
+      "parent": "@c_parent",
+      "overrides": {"planner.kind": "icem", "reuse_parent_checkpoint": true, "checkpoint_decision_alias": "c_parent"},
+      "declared_changes": ["planner.kind", "reuse_parent_checkpoint", "checkpoint_decision_alias"]
+    },
+    {
+      "name": "p_beam",
+      "stage": "reserve",
+      "role": "candidate",
+      "description": "Reuse the locked finalist with beam search under the same transition cap.",
+      "parent": "@c_parent",
+      "overrides": {"planner.kind": "beam", "reuse_parent_checkpoint": true, "checkpoint_decision_alias": "c_parent"},
+      "declared_changes": ["planner.kind", "reuse_parent_checkpoint", "checkpoint_decision_alias"]
+    },
+    {
+      "name": "p_best_first",
+      "stage": "reserve",
+      "role": "candidate",
+      "description": "Reuse the locked finalist with best-first search under the same transition cap.",
+      "parent": "@c_parent",
+      "overrides": {"planner.kind": "best_first", "reuse_parent_checkpoint": true, "checkpoint_decision_alias": "c_parent"},
+      "declared_changes": ["planner.kind", "reuse_parent_checkpoint", "checkpoint_decision_alias"]
+    }
+  ]
+}
