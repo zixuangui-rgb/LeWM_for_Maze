@@ -23,6 +23,7 @@ class ProfilePaths(StrictModel):
     quick_config: str
     quick_protocol_lock: str
     package_lock: str
+    reproduction_contract: str
     source_config: str
     source_protocol_lock: str
     source_run_root: str
@@ -35,6 +36,7 @@ class PhaseSpec(StrictModel):
     head_seeds: tuple[int, ...]
     action_protocols: tuple[Literal["corrected_v1", "unmasked"], ...]
     methods: tuple[str, ...]
+    dynamic_method_source: Literal["none", "q1_shortlist", "q2_winner"]
     run_diagnostics: bool
 
 
@@ -93,6 +95,7 @@ class QuickProfile(StrictModel):
                 head_seeds=(0,),
                 action_protocols=("corrected_v1",),
                 methods=ALL_METHODS,
+                dynamic_method_source="none",
                 run_diagnostics=True,
             ),
             "q2": PhaseSpec(
@@ -101,6 +104,7 @@ class QuickProfile(StrictModel):
                 head_seeds=(0, 1),
                 action_protocols=("corrected_v1", "unmasked"),
                 methods=("b_dh_cem", "a1_log"),
+                dynamic_method_source="q1_shortlist",
                 run_diagnostics=True,
             ),
             "q3": PhaseSpec(
@@ -109,6 +113,7 @@ class QuickProfile(StrictModel):
                 head_seeds=(0,),
                 action_protocols=("corrected_v1", "unmasked"),
                 methods=REFERENCE_METHODS,
+                dynamic_method_source="q2_winner",
                 run_diagnostics=False,
             ),
         }

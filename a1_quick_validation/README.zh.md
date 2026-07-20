@@ -10,9 +10,11 @@
 - `docs/ENGINEER_RUNBOOK.zh.md`：从服务器预检到四卡执行的逐条命令。
 - `docs/RESULT_SCHEMA.zh.md`：结果、诊断、decision 和 completion seal 的字段约定。
 - `docs/VALIDATION.zh.md`：代码审计和测试范围。
+- `docs/CONSISTENCY_AUDIT.zh.md`：与最初复现、修正基线和本实验的逐层对应。
 - `configs/default.json`：与原 DistanceHead schema 完全兼容的运行配置。
 - `configs/methods.json`：三个参考方法、四个 A1 直接父节点处理。
 - `configs/quick_profile.json`：快速阶段矩阵和所有晋级阈值。
+- `configs/reproduction_contract.json`：历史来源、正式修复项和上游文件 hash。
 - `configs/protocol_lock.json`：旧科学核心生成的内层协议锁。
 - `configs/package_lock.json`：覆盖本目录代码、文档和配置的外层锁。
 - `run.py`：所有正式操作的唯一受锁入口。
@@ -32,3 +34,5 @@
 - 测试 BFS 标签只用于离线诊断，不进入动作选择。
 
 完整运行请严格遵循 [ENGINEER_RUNBOOK.zh.md](docs/ENGINEER_RUNBOOK.zh.md)。
+
+这里的“精确参考锚点”指与锁定的 `distance_head_study` 完全一致。最初临时复现脚本仅用于 lineage；其中已知的 best-eval checkpoint 和旧 planner 行为不会重新引入正式比较。

@@ -101,7 +101,12 @@ def guarded_worktree_dirty() -> bool:
         "diagnostics",
         "spatial_jepa_planning",
         "vector_jepa_planner_frontier",
+        "scripts/runs/run_seqlen2_metric_heads.sh",
+        "scripts/train/train_distance_head_simple_setb.py",
+        "scripts/eval/eval_setb_distance_head_fixed.py",
+        "scripts/eval/run_cem_setb_correct.py",
         "scripts/train/train_dim256.py",
+        "results/FINAL_REPORT.md",
         "pyproject.toml",
         "uv.lock",
     )

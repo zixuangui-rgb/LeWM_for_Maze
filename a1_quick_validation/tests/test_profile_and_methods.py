@@ -5,8 +5,10 @@ import copy
 import pytest
 
 from a1_quick_validation import ALL_METHODS, NEW_METHODS, REFERENCE_METHODS
+from a1_quick_validation.audit import run_audit
 from a1_quick_validation.common import DEFAULT_PROFILE, load_json
-from a1_quick_validation.profile import load_profile
+from a1_quick_validation.profile import load_profile, verify_reproduction_contract
+from a1_quick_validation.release_seed_tier import expected_seed_matrix
 from a1_quick_validation.schemas import QuickProfile
 from distance_head_study.common import (
     load_method_catalog,
@@ -24,6 +26,55 @@ def test_profile_locks_exact_phase_matrices() -> None:
     assert profile.q2.head_seeds == (0, 1)
     assert profile.q2.action_protocols == ("corrected_v1", "unmasked")
     assert profile.q3.split_role == "legacy"
+    assert profile.q1.dynamic_method_source == "none"
+    assert profile.q2.dynamic_method_source == "q1_shortlist"
+    assert profile.q3.dynamic_method_source == "q2_winner"
+
+
+def test_quick_seed_release_scope_is_narrower_than_parent_study() -> None:
+    profile = load_profile()
+    source = load_study_config(profile.paths.source_config)
+    assert expected_seed_matrix(profile, "seed1") == ((42,), (0,))
+    assert expected_seed_matrix(profile, "seed3") == ((42,), (0, 1))
+    assert source.seeds.screen_head_seeds == (0, 1, 2)
+    assert source.seeds.select_backbones == (42, 43, 44)
+
+
+def test_reproduction_contract_binds_historical_and_repaired_layers() -> None:
+    profile = load_profile()
+    contract = verify_reproduction_contract(profile)
+    assert contract["lineage_layers"] == {
+        "historical_raw_reproduction": "traceability_only_not_formal_comparator",
+        "corrected_vector_anchor": "final_closure",
+        "immediate_distance_head_comparator": "distance_head_study",
+        "quick_treatments": "a1_quick_validation",
+    }
+    assert contract["quick_comparison_contract"]["bootstrap_task_resampling"] == (
+        "paired_by_task_id_within_maze_size"
+    )
+    assert (
+        contract["deliberate_nonidentity_with_raw_history"]["checkpoint_selection"][
+            "formal"
+        ]
+        == "final_step"
+    )
+
+
+def test_quick_audit_explicitly_covers_every_heldout_role() -> None:
+    audit = run_audit()
+    assert audit["calibration_layouts_are_train_subset"] is True
+    assert audit["heldout_train_overlap"] == {
+        "screen": {"layout": 0, "task": 0},
+        "select": {"layout": 0, "task": 0},
+        "legacy": {"layout": 0, "task": 0},
+        "confirm": {"layout": 0, "task": 0},
+        "stress": {"layout": 0, "task": 0},
+    }
+    assert {
+        value
+        for overlap in audit["heldout_pair_overlap"].values()
+        for value in overlap.values()
+    } == {0}
 
 
 def test_profile_rejects_quick_budget_drift() -> None:

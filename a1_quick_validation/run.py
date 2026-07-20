@@ -10,38 +10,44 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-import torch
-
-from a1_quick_validation import ALL_METHODS, NEW_METHODS
+from a1_quick_validation import ALL_METHODS, NEW_METHODS, PROMOTABLE_METHODS
 from a1_quick_validation.audit import run_audit
 from a1_quick_validation.cache_bridge import rebind_cache, validate_quick_cache
 from a1_quick_validation.checkpoint_bridge import import_reference_checkpoint
 from a1_quick_validation.common import (
     DEFAULT_PROFILE,
-    load_json,
     require_clean_worktree,
     resolve_path,
 )
+from a1_quick_validation.evidence import (
+    load_validated_diagnostic,
+    validate_candidate_bank,
+    validate_quick_checkpoint,
+    validate_result_cell,
+)
 from a1_quick_validation.profile import verify_package_lock
+from a1_quick_validation.release_seed_tier import (
+    release_seed_tier,
+    validate_seed_release,
+)
 from a1_quick_validation.selection import (
     assess_q3,
     diagnostic_path,
+    load_q1_shortlist,
+    load_q2_winner,
     select_q1,
     select_q2,
 )
 from distance_head_study import candidates as base_candidates
 from distance_head_study import diagnose as base_diagnose
 from distance_head_study import evaluate as base_evaluate
-from distance_head_study import release_seed_tier as base_release
 from distance_head_study import train_head as base_train
-from distance_head_study.candidates import candidate_bank_path, load_candidate_bank
+from distance_head_study.candidates import candidate_bank_path
 from distance_head_study.common import (
-    canonical_json_sha256,
     head_checkpoint_path,
     load_study_config,
 )
-from distance_head_study.gates import load_signed_artifact
-from distance_head_study.results import load_complete_rows, result_directory
+from distance_head_study.results import result_directory
 
 
 @contextlib.contextmanager
@@ -69,33 +75,14 @@ def _load_context(profile_path: str | Path) -> tuple[Any, Any, dict[str, Any]]:
 def _load_shortlisted_new_methods(
     config: Any, quick_lock: dict[str, Any]
 ) -> tuple[str, ...]:
-    shortlist = load_signed_artifact(
-        config.paths.shortlist_lock,
-        signature_field="shortlist_sha256",
-        expected_protocol_id=config.protocol_id,
-        verify_hash_fields=("input_hashes",),
-    )
-    if shortlist.get("protocol_lock_sha256") != quick_lock["protocol_lock_sha256"]:
-        raise ValueError("shortlist uses another quick protocol")
-    values = tuple(str(value) for value in shortlist.get("new_methods", ()))
-    if not values or len(values) > 2 or not set(values) <= set(NEW_METHODS):
-        raise ValueError("shortlist has an invalid new-method set")
-    return values
+    shortlist = load_q1_shortlist(config, quick_lock)
+    return tuple(str(value) for value in shortlist["new_methods"])
 
 
 def _load_winner(config: Any, quick_lock: dict[str, Any]) -> str:
-    path = resolve_path(config.paths.decision_root) / "q2_winner.json"
-    payload = load_json(path)
-    signature = payload.get("decision_sha256")
-    unsigned = {
-        key: value for key, value in payload.items() if key != "decision_sha256"
-    }
-    if signature != canonical_json_sha256(unsigned):
-        raise ValueError("Q2 winner signature mismatch")
-    if payload.get("protocol_lock_sha256") != quick_lock["protocol_lock_sha256"]:
-        raise ValueError("Q2 winner uses another quick protocol")
+    payload = load_q2_winner(config, quick_lock)
     winner = payload.get("selected_method")
-    if winner not in NEW_METHODS:
+    if winner not in PROMOTABLE_METHODS:
         raise RuntimeError("there is no promotable Q2 winner")
     return str(winner)
 
@@ -221,42 +208,47 @@ def _redirect_diagnostics(run_root: str | Path) -> Iterator[None]:
         base_diagnose.resolve_path = original
 
 
-def _checkpoint_complete(path: Path, quick_lock: dict[str, Any], method: str) -> bool:
+def _checkpoint_complete(
+    profile_path: str | Path,
+    path: Path,
+    *,
+    method: str,
+    backbone_seed: int,
+    head_seed: int,
+) -> bool:
     if not path.exists():
         return False
-    payload = torch.load(path, map_location="cpu", weights_only=False)
-    return bool(
-        payload.get("formal_run") is True
-        and payload.get("method", {}).get("name") == method
-        and payload.get("analysis_spec_sha256") == quick_lock["analysis_spec_sha256"]
-        and payload.get("protocol_lock_sha256") == quick_lock["protocol_lock_sha256"]
-        and payload.get("checkpoint_selection") == "final_step"
-        and int(payload.get("final_step", -1)) == 30_000
+    validate_quick_checkpoint(
+        profile_path,
+        method_name=method,
+        backbone_seed=backbone_seed,
+        head_seed=head_seed,
     )
+    return True
 
 
 def _diagnostic_complete(
+    config: Any,
     path: Path,
     quick_lock: dict[str, Any],
     *,
     method: str,
     split_role: str,
+    backbone_seed: int,
     head_seed: int,
 ) -> bool:
     if not path.exists():
         return False
-    payload = load_json(path)
-    signature = payload.get("diagnostic_sha256")
-    unsigned = {
-        key: value for key, value in payload.items() if key != "diagnostic_sha256"
-    }
-    return bool(
-        signature == canonical_json_sha256(unsigned)
-        and payload.get("method") == method
-        and payload.get("split_role") == split_role
-        and int(payload.get("head_seed", -1)) == head_seed
-        and payload.get("protocol_lock_sha256") == quick_lock["protocol_lock_sha256"]
+    load_validated_diagnostic(
+        config,
+        quick_lock,
+        path,
+        split_role=split_role,
+        method_name=method,
+        backbone_seed=backbone_seed,
+        head_seed=head_seed,
     )
+    return True
 
 
 def _run_train(
@@ -281,7 +273,14 @@ def _run_train(
         backbone_seed=args.backbone_seed,
         head_seed=args.head_seed,
     )
-    if _checkpoint_complete(output, quick_lock, args.method):
+    validate_candidate_bank(config, quick_lock, backbone_seed=args.backbone_seed)
+    if _checkpoint_complete(
+        args.profile,
+        output,
+        method=args.method,
+        backbone_seed=args.backbone_seed,
+        head_seed=args.head_seed,
+    ):
         print(output)
         return
     values = [
@@ -299,6 +298,12 @@ def _run_train(
     ]
     with _redirect_training_state(profile.paths.run_root):
         _invoke(base_train, values)
+    validate_quick_checkpoint(
+        args.profile,
+        method_name=args.method,
+        backbone_seed=args.backbone_seed,
+        head_seed=args.head_seed,
+    )
 
 
 def _run_diagnose(
@@ -319,6 +324,13 @@ def _run_diagnose(
         split_role=args.split_role,
         backbone_seed=args.backbone_seed,
     )
+    validate_candidate_bank(config, quick_lock, backbone_seed=args.backbone_seed)
+    validate_quick_checkpoint(
+        args.profile,
+        method_name=args.method,
+        backbone_seed=args.backbone_seed,
+        head_seed=args.head_seed,
+    )
     output = diagnostic_path(
         profile.paths.run_root,
         split_role=args.split_role,
@@ -327,10 +339,12 @@ def _run_diagnose(
         head_seed=args.head_seed,
     )
     if _diagnostic_complete(
+        config,
         output,
         quick_lock,
         method=args.method,
         split_role=args.split_role,
+        backbone_seed=args.backbone_seed,
         head_seed=args.head_seed,
     ):
         print(output)
@@ -351,6 +365,15 @@ def _run_diagnose(
     ]
     with _redirect_diagnostics(profile.paths.run_root):
         _invoke(base_diagnose, values)
+    load_validated_diagnostic(
+        config,
+        quick_lock,
+        output,
+        split_role=args.split_role,
+        method_name=args.method,
+        backbone_seed=args.backbone_seed,
+        head_seed=args.head_seed,
+    )
 
 
 def _run_evaluate(
@@ -366,6 +389,12 @@ def _run_evaluate(
         action_protocol=args.action_protocol,
         diagnostic=False,
     )
+    validate_quick_checkpoint(
+        args.profile,
+        method_name=args.method,
+        backbone_seed=args.backbone_seed,
+        head_seed=args.head_seed,
+    )
     output = result_directory(
         config,
         split_role=args.split_role,
@@ -376,10 +405,18 @@ def _run_evaluate(
     )
     if output.exists():
         try:
-            load_complete_rows(output)
+            validate_result_cell(
+                config,
+                quick_lock,
+                split_role=args.split_role,
+                method_name=args.method,
+                backbone_seed=args.backbone_seed,
+                head_seed=args.head_seed,
+                action_protocol=args.action_protocol,
+            )
             print(output / "summary.json")
             return
-        except (FileNotFoundError, ValueError):
+        except FileNotFoundError:
             pass
     values = [
         "--config",
@@ -399,6 +436,15 @@ def _run_evaluate(
         "--resume",
     ]
     _invoke(base_evaluate, values)
+    validate_result_cell(
+        config,
+        quick_lock,
+        split_role=args.split_role,
+        method_name=args.method,
+        backbone_seed=args.backbone_seed,
+        head_seed=args.head_seed,
+        action_protocol=args.action_protocol,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -465,24 +511,28 @@ def main() -> None:
             )
             print(destination)
         else:
-            print(
-                rebind_cache(
-                    profile_path=args.profile,
-                    split_role=args.split_role,
-                    backbone_seed=args.backbone_seed,
-                )
+            written = rebind_cache(
+                profile_path=args.profile,
+                split_role=args.split_role,
+                backbone_seed=args.backbone_seed,
             )
+            validate_quick_cache(
+                profile_path=args.profile,
+                split_role=args.split_role,
+                backbone_seed=args.backbone_seed,
+            )
+            print(written)
     elif args.command == "candidate-bank":
         path = candidate_bank_path(
             config, split_role="train", backbone_seed=args.backbone_seed
         )
         if path.exists():
-            metadata, _ = load_candidate_bank(path)
-            if (
-                metadata.get("protocol_lock_sha256")
-                != quick_lock["protocol_lock_sha256"]
-            ):
-                raise ValueError("candidate bank uses another quick protocol")
+            validate_candidate_bank(
+                config,
+                quick_lock,
+                backbone_seed=args.backbone_seed,
+                path=path,
+            )
             print(path)
         else:
             _invoke(
@@ -496,43 +546,57 @@ def main() -> None:
                     str(args.backbone_seed),
                 ],
             )
+            validate_candidate_bank(
+                config,
+                quick_lock,
+                backbone_seed=args.backbone_seed,
+                path=path,
+            )
     elif args.command == "release-seeds":
         path = resolve_path(config.paths.seed_release_root) / f"{args.tier}.json"
         if path.exists():
-            load_signed_artifact(
-                path,
-                signature_field="release_sha256",
-                expected_protocol_id=config.protocol_id,
-            )
+            validate_seed_release(args.profile, tier=args.tier)
             print(path)
         else:
-            _invoke(
-                base_release,
-                [
-                    "--config",
-                    str(profile.paths.quick_config),
-                    "--tier",
-                    args.tier,
-                ],
-            )
+            written = release_seed_tier(args.profile, tier=args.tier)
+            validate_seed_release(args.profile, tier=args.tier)
+            print(written)
     elif args.command == "import-reference":
+        for split_role in ("train", "cal"):
+            validate_quick_cache(
+                profile_path=args.profile,
+                split_role=split_role,
+                backbone_seed=args.backbone_seed,
+            )
+        validate_candidate_bank(config, quick_lock, backbone_seed=args.backbone_seed)
         output = head_checkpoint_path(
             config,
             method=args.method,
             backbone_seed=args.backbone_seed,
             head_seed=args.head_seed,
         )
-        if _checkpoint_complete(output, quick_lock, args.method):
+        if _checkpoint_complete(
+            args.profile,
+            output,
+            method=args.method,
+            backbone_seed=args.backbone_seed,
+            head_seed=args.head_seed,
+        ):
             print(output)
         else:
-            print(
-                import_reference_checkpoint(
-                    profile_path=args.profile,
-                    method_name=args.method,
-                    backbone_seed=args.backbone_seed,
-                    head_seed=args.head_seed,
-                )
+            written = import_reference_checkpoint(
+                profile_path=args.profile,
+                method_name=args.method,
+                backbone_seed=args.backbone_seed,
+                head_seed=args.head_seed,
             )
+            validate_quick_checkpoint(
+                args.profile,
+                method_name=args.method,
+                backbone_seed=args.backbone_seed,
+                head_seed=args.head_seed,
+            )
+            print(written)
     elif args.command == "train":
         _run_train(args, profile, config, quick_lock)
     elif args.command == "diagnose":

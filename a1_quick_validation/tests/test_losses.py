@@ -78,3 +78,6 @@ def test_reachability_has_horizon_matched_control() -> None:
     assert reach.head.output.value == "multitask"
     assert control.objectives.reachability == 0.0
     assert reach.objectives.reachability == 1.0
+    assert reach.planner == control.planner
+    assert reach.planner.cost.value == "terminal_distance"
+    assert reach.planner.reachability_weight == 0.0

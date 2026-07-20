@@ -19,6 +19,7 @@ from a1_quick_validation.common import (
     resolve_path,
     sha256_file,
 )
+from a1_quick_validation.plan_jobs import PHASES, build_plan
 from a1_quick_validation.profile import verify_package_lock
 
 
@@ -36,6 +37,8 @@ def validate_plan(
         raise ValueError("job plan signature mismatch")
     if plan.get("package_lock_sha256") != package_lock_sha256:
         raise ValueError("job plan uses another package lock")
+    if plan.get("phase") not in PHASES:
+        raise ValueError("job plan uses an unknown phase")
     profile_path = plan.get("profile_path")
     if not isinstance(profile_path, str) or not profile_path:
         raise ValueError("job plan omits its profile path")
@@ -70,6 +73,10 @@ def validate_plan(
         not value for value in identifiers
     ):
         raise ValueError("job identifiers are missing or duplicated")
+    if expected_profile_path is not None:
+        expected = build_plan(expected_profile_path, str(plan["phase"]))
+        if plan != expected:
+            raise ValueError("job plan differs from the canonical locked phase matrix")
 
 
 def _render(command: list[str], device: str) -> list[str]:
@@ -86,15 +93,24 @@ def _validate_completion(
     if signature != canonical_json_sha256(unsigned):
         raise ValueError(f"completion signature mismatch: {path}")
     if (
-        payload.get("plan_sha256") != plan["plan_sha256"]
+        payload.get("schema") != "a1-quick-validation-job-completion-v1"
+        or payload.get("profile_id") != plan.get("profile_id")
+        or payload.get("phase") != plan.get("phase")
+        or payload.get("plan_sha256") != plan["plan_sha256"]
         or payload.get("job_id") != job["job_id"]
+        or int(payload.get("worker", -1)) != int(job["worker"])
         or payload.get("commands_sha256") != canonical_json_sha256(job["commands"])
         or payload.get("all_commands_succeeded") is not True
     ):
         raise ValueError(f"stale completion seal: {path}")
     logs = payload.get("logs")
-    if not isinstance(logs, dict) or not logs:
-        raise ValueError(f"completion seal has no logs: {path}")
+    if not isinstance(logs, dict) or len(logs) != len(job["commands"]):
+        raise ValueError(f"completion seal has the wrong log count: {path}")
+    expected_log_names = {
+        f"command_{index:02d}.log" for index in range(len(job["commands"]))
+    }
+    if {Path(value).name for value in logs} != expected_log_names:
+        raise ValueError(f"completion seal has noncanonical log names: {path}")
     for log_path, expected_hash in logs.items():
         if (
             not resolve_path(log_path).exists()

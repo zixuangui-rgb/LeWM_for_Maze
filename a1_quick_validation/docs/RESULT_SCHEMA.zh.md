@@ -44,6 +44,8 @@ checkpoints/a1_quick_validation/heads/<method>/backbone42_head<head_seed>.pt
 - cache、candidate bank 和 checkpoint provenance；
 - `diagnostic_sha256`。
 
+选择器还会展开并绑定 diagnostic 的 backbone/head checkpoint、candidate bank、cache index 和每个 cache shard；只验证顶层 JSON 签名不足以进入决策。
+
 ## 4. Q1 decision
 
 路径：`decisions/q1_decision.json`。
@@ -70,6 +72,7 @@ checkpoints/a1_quick_validation/heads/<method>/backbone42_head<head_seed>.pt
 - `ranked_passing_methods`；
 - `selected_method`，无 winner 时为 `null`；
 - 每个 head seed/action protocol 的 paired metrics；
+- 每个 head seed 的 `mechanism_rechecks`，明确标记 Q2 不重复使用 Q1 的 SR safety gate；
 - 聚合 promotion gate；
 - `stopped_for_no_winner`；
 - `input_hashes`；
@@ -125,4 +128,14 @@ Plan、decision 和 completion 都是不可覆盖产物。
 }
 ```
 
-SR 还包含 `seen` 和 `ood` 子对象（该 split 存在对应任务时）。所有 CI 使用锁定的 10,000 replicate seed schedule。
+paired metric 顶层还必须包含：
+
+```json
+{
+  "pairing": "exact_task_id",
+  "task_resampling": "paired_by_task_id_within_maze_size",
+  "bootstrap_samples": 10000
+}
+```
+
+SR 还包含 `seen` 和 `ood` 子对象（该 split 存在对应任务时）。所有 CI 使用锁定的 10,000 replicate seed schedule，并保持每个 maze-size stratum 的任务数。

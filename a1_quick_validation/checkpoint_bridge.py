@@ -10,7 +10,8 @@ from typing import Any
 
 import torch
 
-from a1_quick_validation.common import DEFAULT_PROFILE, prepare_immutable
+from a1_quick_validation.cache_bridge import verify_all_shards
+from a1_quick_validation.common import DEFAULT_PROFILE, prepare_immutable, resolve_path
 from a1_quick_validation.profile import load_profile
 from distance_head_study.candidates import candidate_bank_path, load_candidate_bank
 from distance_head_study.common import (
@@ -62,6 +63,7 @@ def _quick_cache_bindings(
             backbone_seed=backbone_seed,
             protocol_lock=quick_lock,
         )
+        verify_all_shards(dataset)
     return bindings
 
 
@@ -137,12 +139,13 @@ def import_reference_checkpoint(
     }:
         raise ValueError("source checkpoint cache bindings are incomplete")
     for role, binding in source_bindings.items():
-        validate_recorded_cache_binding(
+        source_index_path = validate_recorded_cache_binding(
             binding,
             split_role=role,
             backbone_seed=backbone_seed,
             protocol_lock=source_lock,
         )
+        verify_all_shards(ShardedGoalDataset(source_index_path))
     quick_bindings = _quick_cache_bindings(quick_config, quick_lock, backbone_seed)
     for role in ("train", "cal"):
         source_index = ShardedGoalDataset(source_bindings[role]["index_path"])
@@ -156,6 +159,11 @@ def import_reference_checkpoint(
         if source_content != quick_content:
             raise ValueError(f"{role} cache tensor records differ")
     source_bank_path = source["candidate_bank"]["path"]
+    canonical_source_bank = candidate_bank_path(
+        source_config, split_role="train", backbone_seed=backbone_seed
+    )
+    if resolve_path(source_bank_path) != canonical_source_bank:
+        raise ValueError("source checkpoint candidate bank path is noncanonical")
     if source["candidate_bank"].get("sha256") != sha256_file(source_bank_path):
         raise ValueError("source checkpoint candidate bank changed")
     source_bank_metadata, source_actions = load_candidate_bank(source_bank_path)
@@ -163,6 +171,16 @@ def import_reference_checkpoint(
         quick_config, split_role="train", backbone_seed=backbone_seed
     )
     quick_bank_metadata, quick_actions = load_candidate_bank(quick_bank_path)
+    for metadata, config, lock, label in (
+        (source_bank_metadata, source_config, source_lock, "source"),
+        (quick_bank_metadata, quick_config, quick_lock, "quick"),
+    ):
+        if (
+            metadata.get("protocol_id") != config.protocol_id
+            or metadata.get("analysis_spec_sha256") != lock["analysis_spec_sha256"]
+            or metadata.get("protocol_lock_sha256") != lock["protocol_lock_sha256"]
+        ):
+            raise ValueError(f"{label} candidate bank lock binding differs")
     if not torch.equal(source_actions, quick_actions):
         raise ValueError("source and quick candidate action tensors differ")
     for field in (

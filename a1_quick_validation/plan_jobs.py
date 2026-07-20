@@ -7,16 +7,16 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from a1_quick_validation import JOB_PLAN_SCHEMA, NEW_METHODS
+from a1_quick_validation import JOB_PLAN_SCHEMA, NEW_METHODS, PROMOTABLE_METHODS
 from a1_quick_validation.common import (
     DEFAULT_PROFILE,
     atomic_json_dump,
     canonical_json_sha256,
-    load_json,
     prepare_immutable,
     resolve_path,
 )
 from a1_quick_validation.profile import verify_package_lock
+from a1_quick_validation.selection import load_q1_shortlist, load_q2_winner
 from distance_head_study.common import load_study_config
 
 PHASES = (
@@ -49,25 +49,36 @@ def _job(identifier: str, worker: int, commands: list[list[str]]) -> dict[str, A
     return {"job_id": identifier, "worker": int(worker), "commands": commands}
 
 
-def _shortlist(config: Any) -> list[str]:
-    payload = load_json(config.paths.shortlist_lock)
+def _shortlist(
+    config: Any, quick_lock: dict[str, Any], package_lock_sha256: str
+) -> list[str]:
+    payload = load_q1_shortlist(
+        config,
+        quick_lock,
+        package_lock_sha256=package_lock_sha256,
+    )
     values = [str(value) for value in payload.get("new_methods", [])]
-    if not values or len(values) > 2 or not set(values) <= set(NEW_METHODS):
+    if not values or len(values) > 2 or not set(values) <= set(PROMOTABLE_METHODS):
         raise ValueError("Q2 planning requires a valid Q1 shortlist")
     return values
 
 
-def _winner(config: Any) -> str:
-    payload = load_json(resolve_path(config.paths.decision_root) / "q2_winner.json")
+def _winner(config: Any, quick_lock: dict[str, Any], package_lock_sha256: str) -> str:
+    payload = load_q2_winner(
+        config,
+        quick_lock,
+        package_lock_sha256=package_lock_sha256,
+    )
     value = payload.get("selected_method")
-    if value not in NEW_METHODS:
+    if value not in PROMOTABLE_METHODS:
         raise ValueError("Q3 planning requires a valid Q2 winner")
     return str(value)
 
 
 def build_jobs(profile_path: str | Path, phase: str) -> list[dict[str, Any]]:
-    profile, _, _ = verify_package_lock(profile_path)
+    profile, package_lock, quick_lock = verify_package_lock(profile_path)
     config = load_study_config(profile.paths.quick_config)
+    package_lock_sha256 = str(package_lock["package_lock_sha256"])
     jobs: list[dict[str, Any]] = []
     if phase == "q0":
         commands = [_command(profile_path, "audit")]
@@ -161,7 +172,7 @@ def build_jobs(profile_path: str | Path, phase: str) -> list[dict[str, Any]]:
             )
         )
     elif phase == "q2_gate":
-        _shortlist(config)
+        _shortlist(config, quick_lock, package_lock_sha256)
         jobs.append(
             _job(
                 "q2_release_and_reference_heads",
@@ -188,7 +199,9 @@ def build_jobs(profile_path: str | Path, phase: str) -> list[dict[str, Any]]:
             )
         )
     elif phase == "q2_train":
-        for index, method in enumerate(_shortlist(config)):
+        for index, method in enumerate(
+            _shortlist(config, quick_lock, package_lock_sha256)
+        ):
             jobs.append(
                 _job(
                     f"q2_train_{method}_head1",
@@ -208,7 +221,10 @@ def build_jobs(profile_path: str | Path, phase: str) -> list[dict[str, Any]]:
                 )
             )
     elif phase == "q2_eval":
-        methods = ["b_dh_cem", "a1_log", *_shortlist(config)]
+        methods = [
+            *profile.q2.methods,
+            *_shortlist(config, quick_lock, package_lock_sha256),
+        ]
         job_index = 0
         for method in methods:
             for head_seed in profile.q2.head_seeds:
@@ -252,7 +268,7 @@ def build_jobs(profile_path: str | Path, phase: str) -> list[dict[str, Any]]:
                 )
                 job_index += 1
     elif phase == "q2_select":
-        _shortlist(config)
+        _shortlist(config, quick_lock, package_lock_sha256)
         jobs.append(
             _job(
                 "q2_select",
@@ -261,7 +277,7 @@ def build_jobs(profile_path: str | Path, phase: str) -> list[dict[str, Any]]:
             )
         )
     elif phase == "q3_eval":
-        winner = _winner(config)
+        winner = _winner(config, quick_lock, package_lock_sha256)
         methods = [*profile.q3.methods, winner]
         job_index = 0
         for method in methods:
@@ -290,7 +306,7 @@ def build_jobs(profile_path: str | Path, phase: str) -> list[dict[str, Any]]:
                 )
                 job_index += 1
     elif phase == "q3_assess":
-        _winner(config)
+        _winner(config, quick_lock, package_lock_sha256)
         jobs.append(
             _job(
                 "q3_assess",

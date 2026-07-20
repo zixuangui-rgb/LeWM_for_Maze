@@ -40,7 +40,7 @@
 
 ### RQ3：剩余步数可达性
 
-在有 horizon 输入的匹配控制之上加入多预算 reachability，能否形成校准、单调且对规划有用的可达性信号？
+在有 horizon 输入的匹配控制之上加入多预算 reachability 辅助监督，能否学出校准、单调的可达性信号，并通过共享 DistanceHead trunk 改善现有 terminal-distance 规划的 SR？
 
 ### RQ4：转化瓶颈
 
@@ -58,6 +58,8 @@
 
 这三个方法的 resolved method 对象和 method hash 必须与原 `distance_head_study` 完全一致。
 
+这里的“原实验”特指协议修正后的 `distance_head_study`。更早的临时复现脚本只作为方法来源证据；二者的继承项和必要修复详见 `CONSISTENCY_AUDIT.zh.md`。
+
 ### 4.2 新处理和匹配控制
 
 | 方法 | 直接父节点 | 唯一科学变化 | 身份 |
@@ -68,6 +70,8 @@
 | `a1_reach` | `a1_hcond` | 增加 multitask reachability 输出和监督 | 候选 |
 
 `a1_reach` 需要一个 reachability 输出通道和对应损失，这两项共同构成不可拆分的 treatment；`a1_hcond` 专门排除“只是多给了 horizon 输入”的解释。
+
+`a1_reach` 的 planner 仍与 `a1_log` 完全相同，使用 `terminal_distance` 标量；reachability logits 只进入训练辅助损失和 diagnostics，不直接进入 CEM cost。因此本实验检验的是“reachability 辅助监督能否改善现有距离 scorer”，不能据此声称“以 reachability 作为 planner cost”已经被验证。直接消费 reachability logits 属于另一个 planner treatment，不得在本协议中临时加入。
 
 ### 4.3 明确不做的事情
 
@@ -185,6 +189,8 @@ Q0 不看性能。它完成：
 
 Q0 任一失败，禁止运行 Q1。
 
+quick seed release 必须严格等于 profile：seed1 只包含 backbone42/head0；seed3 只包含 backbone42/head0,1。不得继承上游大实验中更宽的 head/backbone seed 池。
+
 ## Q1：D_screen 单 seed 机制快筛
 
 矩阵：backbone 42、head 0、D_screen 140、`corrected_v1`，七个方法全部评估并诊断。
@@ -274,7 +280,7 @@ winner 在查看 full-900 前锁定。矩阵为 backbone 42、head 0、900 tasks
 
 ### 9.4 不确定性
 
-每个 paired SR/SPL delta 使用原协议固定的 10,000 个 bootstrap replicate seeds，报告 95% percentile CI。快速晋级仍按预注册 effect-size 门槛，不把单次 CI 当作论文级显著性证明。
+每个 paired SR/SPL delta 使用原协议固定的 10,000 个 bootstrap replicate seeds，并在每个 maze size 内分别进行有放回重采样，报告 95% percentile CI。每个 replicate 保持各尺寸原有任务数，因此不会让尺寸构成的抽样波动改变预设权重。快速晋级仍按预注册 effect-size 门槛，不把单次 CI 当作论文级显著性证明。
 
 ## 10. 防泄漏和防选择偏差
 
@@ -305,7 +311,7 @@ winner 在查看 full-900 前锁定。矩阵为 backbone 42、head 0、900 tasks
 
 ### 情形 B：机制改善，SR 不改善
 
-可以说表征/score 的目标能力已经改善，但现有 CEM 没有有效消费它；这是继续做 planner/scorer coupling 的依据。
+可以说 head 的目标能力已经改善，但现有 terminal-distance scorer/CEM 没有把它转化为成功率；这是另立协议研究 planner/scorer coupling 的依据。对 `a1_reach` 尤其不能把该结果表述成“reachability planner 已失败”，因为本实验没有让 planner 直接消费 reachability logits。
 
 ### 情形 C：机制不改善
 

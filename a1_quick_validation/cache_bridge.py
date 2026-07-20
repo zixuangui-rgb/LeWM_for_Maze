@@ -26,7 +26,7 @@ from distance_head_study.protocol import verify_protocol_lock
 ALLOWED_ROLES = ("train", "cal", "screen", "select")
 
 
-def _verify_all_shards(dataset: ShardedGoalDataset) -> None:
+def verify_all_shards(dataset: ShardedGoalDataset) -> None:
     for index, record in enumerate(dataset.records):
         path = resolve_path(record["path"])
         if not path.exists() or sha256_file(path) != record["sha256"]:
@@ -57,7 +57,7 @@ def rebind_cache(
         backbone_seed=backbone_seed,
         protocol_lock=source_lock,
     )
-    _verify_all_shards(source_dataset)
+    verify_all_shards(source_dataset)
     source_manifest = resolve_path(
         getattr(source_config.paths, f"{split_role}_manifest")
     )
@@ -106,7 +106,7 @@ def rebind_cache(
     )
     if rebound_dataset.records != source_dataset.records:
         raise RuntimeError("cache rebinding unexpectedly changed shard records")
-    _verify_all_shards(rebound_dataset)
+    verify_all_shards(rebound_dataset)
     return destination
 
 
@@ -137,7 +137,7 @@ def validate_quick_cache(
             raise ValueError("source cache index changed after rebinding")
     elif any(str(key).startswith("rebound_") for key in dataset.index):
         raise ValueError("cache has an incomplete rebound provenance record")
-    _verify_all_shards(dataset)
+    verify_all_shards(dataset)
     return binding
 
 
@@ -158,3 +158,6 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+__all__ = ["rebind_cache", "validate_quick_cache", "verify_all_shards"]

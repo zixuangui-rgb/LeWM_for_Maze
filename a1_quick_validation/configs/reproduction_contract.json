@@ -1,0 +1,97 @@
+{
+  "schema": "a1-quick-validation-reproduction-contract-v1",
+  "lineage_layers": {
+    "historical_raw_reproduction": "traceability_only_not_formal_comparator",
+    "corrected_vector_anchor": "final_closure",
+    "immediate_distance_head_comparator": "distance_head_study",
+    "quick_treatments": "a1_quick_validation"
+  },
+  "source_artifacts": {
+    "data/splits/unisize_eval_manifest.jsonl": "210e2de5aa5d9a688ff2fe60c4e8b85e11fa10b570d0ca3f4e72d8f173dbb8d9",
+    "data/splits/unisize_train_manifest.jsonl": "1c477db243752a614d569941da6ca9be5c8fb19099295769c1c4dce9250a05f6",
+    "distance_head_study/configs/default.json": "ba65f0f9d9c3a25ea83472932d4ecb689e4c12b76db03d9b2bc221691fc7c387",
+    "distance_head_study/configs/methods.json": "19d0f097b3d5ba1f2713515828d4e382734637026318b13659ac693fcf931a47",
+    "distance_head_study/configs/protocol_lock.json": "09d75ab9ef31cba956e82d17928316c53fed66816f739bc229c73b34e8044bb8",
+    "distance_head_study/manifests/d_cal.jsonl": "6809bf93d6698aefc781395882a8ade43445675573291c27aa4fb7fbd628680d",
+    "distance_head_study/manifests/d_screen.jsonl": "3171932682151283e887288ee5523aad5cc3949dc69829260068b419fd9de792",
+    "distance_head_study/manifests/d_select.jsonl": "f0739a6ba62a805ddd1f8c18b40e8da522b5c8fd88d47ef77d6dfa1a37787056",
+    "distance_head_study/protocol/baseline_provenance.json": "82a199be343372c09a280141192297294df86068feefc26b96a530c78d99965f",
+    "final_closure/configs/default.json": "221b797f6c49b4fa4c880a5a2fa483583d004451f41d6a642a5bd2e2b00b95d9",
+    "final_closure/configs/protocol_lock.json": "2e6aa394dfa289556bc6161fdb4a98a3fe70050844305a9876016450f70c1d44",
+    "results/FINAL_REPORT.md": "eea6a36bbd952bf61545fd17a7530c58adb7455105385eac433868490cb9c1b5",
+    "scripts/eval/eval_setb_distance_head_fixed.py": "5e68fe854aba6b80c83799e22d3c57dc9959af527f1ee07e66051c37832dbc13",
+    "scripts/eval/run_cem_setb_correct.py": "41977dc27e1aa9cb8fd1ef265b67da866953a8dd0cc06e396a9bd2946dd01da0",
+    "scripts/runs/run_seqlen2_metric_heads.sh": "a22805526952b4c4c22f1878fee4c1e0085b4d38b21a9e26d28ce530d7a7527f",
+    "scripts/train/train_dim256.py": "4f46d21a20d70d2a4682071b26446883aba20695f91695fc1726d4e945ecf28d",
+    "scripts/train/train_distance_head_simple_setb.py": "e245148a3dd44782f7228fa9b50c5e92630cb3601be96b912781ec8679ac71b4"
+  },
+  "historical_vector_jepa": {
+    "baseline_name": "lewm_l2_cem_seqlen2",
+    "latent_dim": 256,
+    "sequence_length": 2,
+    "training_steps": 30000,
+    "training_batch_size": 256,
+    "checkpoint_selection": "final_step"
+  },
+  "historical_distance_head": {
+    "architecture": "historical_concat",
+    "hidden_dims": [512, 256, 128],
+    "output_semantics": "nonnegative_scalar",
+    "historical_target_name": "log_norm",
+    "resolved_target_name": "legacy_log_norm",
+    "historical_loss_name": "smooth_l1",
+    "resolved_loss_name": "huber",
+    "smooth_l1_huber_beta": 1.0,
+    "steps": 30000,
+    "effective_batch_size": 512,
+    "pairs_per_topology": 64,
+    "learning_rate": 0.001,
+    "weight_decay": 0.00001
+  },
+  "corrected_planner": {
+    "history_size": 3,
+    "horizon": 12,
+    "num_candidates": 64,
+    "num_elites": 8,
+    "cem_iters": 1,
+    "momentum": 0.1,
+    "max_steps": 128,
+    "allowed_actions": [1, 2, 3, 4],
+    "replan_every_step": true,
+    "rollout_semantics": "legacy_warmup_v1",
+    "formal_action_protocols": ["corrected_v1", "unmasked"]
+  },
+  "deliberate_nonidentity_with_raw_history": {
+    "checkpoint_selection": {
+      "historical": "best_observed_legacy_eval_loss",
+      "formal": "final_step",
+      "reason": "The historical full-900 evaluation was already observed and cannot select a new checkpoint."
+    },
+    "sampling_and_storage": {
+      "historical": "lazy_per_maze_sampling",
+      "formal": "locked_sharded_cache_and_stateless_sample_schedule",
+      "reason": "Deterministic replay and complete provenance are required for a strict comparison."
+    },
+    "learning_rate_schedule": {
+      "historical": "cosine_to_zero_without_warmup",
+      "formal": "five_percent_warmup_then_cosine_to_0.1x",
+      "reason": "The immediate comparator is the preregistered distance_head_study baseline, not the ad hoc historical checkpoint."
+    },
+    "evaluation": {
+      "historical": "mixed_debug_and_corrected_scripts",
+      "formal": "fixed_manifest_with_corrected_v1_and_unmasked_endpoints",
+      "reason": "Historical high-invalid planner runs are explicitly excluded from formal comparison."
+    }
+  },
+  "quick_comparison_contract": {
+    "exact_reference_methods": ["b_l2_cem", "b_dh_cem", "a1_log"],
+    "exact_inherited_sections": ["splits", "seeds", "planner", "training", "analysis"],
+    "checkpoint_selection": "final_step",
+    "backbone_seed": 42,
+    "q1_head_seeds": [0],
+    "q2_head_seeds": [0, 1],
+    "bootstrap_task_resampling": "paired_by_task_id_within_maze_size",
+    "test_bfs_enters_action_selection": false,
+    "confirmatory_claim_allowed": false
+  }
+}

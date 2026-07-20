@@ -16,6 +16,8 @@ git status --short
 
 正式运行前 `git status --short` 必须为空。外层 package lock 会覆盖本目录全部代码、配置和文档；任何临时修改都会被拒绝。
 
+审计还会验证 `configs/reproduction_contract.json` 中记录的最初复现脚本和上游协议文件。它们是 lineage 证据；正式 comparator 仍是修正后的 `distance_head_study`。
+
 ## 3. 必需的原实验产物
 
 至少需要：
@@ -49,7 +51,7 @@ distance_head_study_runs/candidates/train/backbone42/bank.pt
   --device cpu
 ```
 
-Q0 会验证协议、重绑定四套 cache、生成 quick candidate bank、释放 seed1，并导入参考 head0。
+Q0 会验证协议、重绑定四套 cache、生成 quick candidate bank、只释放 backbone42/head0 的 seed1，并导入参考 head0。
 
 ### 原 cache 缺失时
 
@@ -100,7 +102,7 @@ a1_quick_validation_runs/decisions/q1_shortlist.json
 
 ## 6. Q2：双 head seed 独立 split 复核
 
-先串行释放 seed3 并导入两个 reference head1：
+先串行释放严格限于 backbone42/head0,1 的 seed3，并导入两个 reference head1：
 
 ```bash
 .venv/bin/python -m a1_quick_validation.plan_jobs --phase q2_gate
@@ -161,7 +163,8 @@ Q3 后本实验无后续自动扩展，无论正负都应收尾。
 
 - head training 总是以 `--resume` 调用；存在有效 train state 时恢复，不存在时从头开始。
 - evaluation 总是以 `--resume` 调用；已有 rows 会按 task ID 跳过。
-- 已完成 diagnostics、checkpoint、decision 和 completion seal 不会覆盖。
+- 已完成 diagnostics、checkpoint、decision 和 completion seal 不会覆盖；若已有文件与当前完整 provenance 不一致，程序会失败而不是将它当作可恢复状态。
+- 每个生成命令在返回成功前都会重新加载并严格验证刚写出的产物；worker 也会重建标准 phase plan，拒绝任何即使重新签名但与预注册矩阵不同的计划。
 - 某个 job 失败时，查看 `a1_quick_validation_runs/logs/<phase>/<job>/`，修复外部环境后重跑同一 worker。
 - 若 completion seal 已存在，runner 会验证它属于同一 plan 后跳过。
 

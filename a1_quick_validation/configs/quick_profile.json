@@ -7,6 +7,7 @@
     "quick_config": "a1_quick_validation/configs/default.json",
     "quick_protocol_lock": "a1_quick_validation/configs/protocol_lock.json",
     "package_lock": "a1_quick_validation/configs/package_lock.json",
+    "reproduction_contract": "a1_quick_validation/configs/reproduction_contract.json",
     "source_config": "distance_head_study/configs/default.json",
     "source_protocol_lock": "distance_head_study/configs/protocol_lock.json",
     "source_run_root": "distance_head_study_runs",
@@ -26,6 +27,7 @@
       "a1_hcond",
       "a1_reach"
     ],
+    "dynamic_method_source": "none",
     "run_diagnostics": true
   },
   "q2": {
@@ -34,6 +36,7 @@
     "head_seeds": [0, 1],
     "action_protocols": ["corrected_v1", "unmasked"],
     "methods": ["b_dh_cem", "a1_log"],
+    "dynamic_method_source": "q1_shortlist",
     "run_diagnostics": true
   },
   "q3": {
@@ -42,6 +45,7 @@
     "head_seeds": [0],
     "action_protocols": ["corrected_v1", "unmasked"],
     "methods": ["b_l2_cem", "b_dh_cem", "a1_log"],
+    "dynamic_method_source": "q2_winner",
     "run_diagnostics": false
   },
   "q1_thresholds": {},
