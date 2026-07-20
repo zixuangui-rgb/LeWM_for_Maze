@@ -15,6 +15,7 @@ spatial_jepa_planning_runs/
 final_closure_runs/
 vector_jepa_planner_frontier_runs/
 distance_head_study_runs/
+a1_quick_validation_runs/
 archive/
 results/**/*.pt
 results/**/*.log

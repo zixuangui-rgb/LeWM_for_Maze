@@ -1,0 +1,56 @@
+{
+  "schema": "a1-quick-validation-profile-v1",
+  "profile_id": "procgen-maze-a1-quick-validation-v1",
+  "evidence_status": "exploratory_fast_validation",
+  "worker_count": 4,
+  "paths": {
+    "quick_config": "a1_quick_validation/configs/default.json",
+    "quick_protocol_lock": "a1_quick_validation/configs/protocol_lock.json",
+    "package_lock": "a1_quick_validation/configs/package_lock.json",
+    "source_config": "distance_head_study/configs/default.json",
+    "source_protocol_lock": "distance_head_study/configs/protocol_lock.json",
+    "source_run_root": "distance_head_study_runs",
+    "run_root": "a1_quick_validation_runs"
+  },
+  "q1": {
+    "split_role": "screen",
+    "backbone_seeds": [42],
+    "head_seeds": [0],
+    "action_protocols": ["corrected_v1"],
+    "methods": [
+      "b_l2_cem",
+      "b_dh_cem",
+      "a1_log",
+      "a1_bellman",
+      "a1_predicted",
+      "a1_hcond",
+      "a1_reach"
+    ],
+    "run_diagnostics": true
+  },
+  "q2": {
+    "split_role": "select",
+    "backbone_seeds": [42],
+    "head_seeds": [0, 1],
+    "action_protocols": ["corrected_v1", "unmasked"],
+    "methods": ["b_dh_cem", "a1_log"],
+    "run_diagnostics": true
+  },
+  "q3": {
+    "split_role": "legacy",
+    "backbone_seeds": [42],
+    "head_seeds": [0],
+    "action_protocols": ["corrected_v1", "unmasked"],
+    "methods": ["b_l2_cem", "b_dh_cem", "a1_log"],
+    "run_diagnostics": false
+  },
+  "q1_thresholds": {},
+  "q2_thresholds": {},
+  "q3_thresholds": {},
+  "reference_methods": ["b_l2_cem", "b_dh_cem", "a1_log"],
+  "new_methods": ["a1_bellman", "a1_predicted", "a1_hcond", "a1_reach"],
+  "no_adaptive_training_budget": true,
+  "no_test_bfs_in_action_selection": true,
+  "full900_is_exploratory_not_confirmatory": true,
+  "claim_boundary": "This profile screens mechanisms quickly on one historical backbone; it can nominate a method but cannot establish multi-backbone or confirmatory generalization."
+}

@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "decision_aliases": {},
+  "methods": [
+    {
+      "name": "b_l2_cem",
+      "stage": "P0",
+      "role": "baseline",
+      "description": "Exact pooled-latent L2 receding-CEM anchor.",
+      "resolved": {
+        "name": "b_l2_cem",
+        "stage": "P0",
+        "role": "baseline",
+        "description": "Exact pooled-latent L2 receding-CEM anchor.",
+        "head": null,
+        "objectives": null,
+        "planner": {"kind": "categorical_cem", "cost": "latent_l2"},
+        "trainable": false
+      }
+    },
+    {
+      "name": "b_dh_cem",
+      "stage": "P0",
+      "role": "baseline",
+      "description": "Protocol-repaired historical Simple DistanceHead with final-step selection.",
+      "resolved": {
+        "name": "b_dh_cem",
+        "stage": "P0",
+        "role": "baseline",
+        "description": "Protocol-repaired historical Simple DistanceHead with final-step selection.",
+        "head": {},
+        "objectives": {},
+        "planner": {}
+      }
+    },
+    {
+      "name": "a1_log",
+      "stage": "P2",
+      "role": "candidate",
+      "description": "Replace per-maze legacy normalization with globally invertible log1p BFS targets.",
+      "parent": "b_dh_cem",
+      "overrides": {"head.target": "log1p"},
+      "declared_changes": ["head.target"]
+    },
+    {
+      "name": "a1_bellman",
+      "stage": "P2",
+      "role": "candidate",
+      "description": "A1 plus one-step Bellman consistency, with every other field held fixed.",
+      "parent": "a1_log",
+      "overrides": {"objectives.bellman": 1.0},
+      "declared_changes": ["objectives.bellman"]
+    },
+    {
+      "name": "a1_predicted",
+      "stage": "P2",
+      "role": "candidate",
+      "description": "A1 plus predicted-latent one-step listwise action ordering.",
+      "parent": "a1_log",
+      "overrides": {"objectives.predicted_listwise": 1.0},
+      "declared_changes": ["objectives.predicted_listwise"]
+    },
+    {
+      "name": "a1_hcond",
+      "stage": "P2",
+      "role": "control",
+      "description": "Matched A1 control that adds horizon input without reachability supervision.",
+      "parent": "a1_log",
+      "overrides": {"head.horizon_conditioned": true},
+      "declared_changes": ["head.horizon_conditioned"]
+    },
+    {
+      "name": "a1_reach",
+      "stage": "P2",
+      "role": "candidate",
+      "description": "A1-HCOND plus monotone multi-budget reachability output and supervision.",
+      "parent": "a1_hcond",
+      "overrides": {
+        "head.output": "multitask",
+        "objectives.reachability": 1.0
+      },
+      "declared_changes": ["head.output", "objectives.reachability"]
+    }
+  ]
+}
