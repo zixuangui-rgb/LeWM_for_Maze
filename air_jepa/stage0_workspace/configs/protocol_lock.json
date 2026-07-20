@@ -1,0 +1,1094 @@
+{
+  "allowed_evaluation_roles": [
+    "air_dev",
+    "air_early",
+    "historical",
+    "preflight"
+  ],
+  "config_path": "air_jepa/stage0_workspace/configs/default.json",
+  "config_sha256": "f63fe506095b74c2401a341dcc190076ad3985c8235195479abd5edf09cc4bae",
+  "experiment_id": "procgen-maze-air0-workspace-v1",
+  "manifests": {
+    "air_dev": {
+      "by_size": {
+        "11": 100,
+        "13": 100,
+        "15": 100,
+        "17": 100,
+        "19": 100,
+        "21": 100,
+        "23": 100,
+        "25": 100,
+        "9": 100
+      },
+      "layout_set_sha256": "8dd5c3dcccea8f5b4b57e2c6434fb6a5cfffec29b9396a7309ce473ae2d744b9",
+      "path": "air_jepa/stage0_workspace/manifests/air_dev.jsonl",
+      "rows": 900,
+      "sha256": "188e06abd60e44e1dda46c3471076aca68cfb786ebdf9d9726bdefc72265da2d",
+      "task_set_sha256": "78cb8be3ac95898ba0ff87333ed0cd59a67d4649134310ebdc660ee8f674332b"
+    },
+    "air_early": {
+      "by_size": {
+        "11": 20,
+        "13": 20,
+        "15": 20,
+        "17": 20,
+        "19": 20,
+        "21": 20,
+        "23": 35,
+        "25": 35,
+        "9": 20
+      },
+      "layout_set_sha256": "6c1ebc423b39a10906aaed201a248308c5f87d1cce98bb2eeb917eae4fa02154",
+      "path": "air_jepa/stage0_workspace/manifests/air_dev_early210.jsonl",
+      "rows": 210,
+      "sha256": "7876371f8c4b842094e7d45076715c9a9998bd97926c5ed8df2c9bce0048290a",
+      "task_set_sha256": "89e6097a840d3a8c99f324c894f0cf6da290bb2f8c91b2462b0bf290acdf6b70"
+    },
+    "air_final": {
+      "by_size": {
+        "11": 100,
+        "13": 100,
+        "15": 100,
+        "17": 100,
+        "19": 100,
+        "21": 100,
+        "23": 100,
+        "25": 100,
+        "9": 100
+      },
+      "layout_set_sha256": "0f39816a0e986ea9d339d13e7119f290908dc74d52a49db91de8e384cd794f53",
+      "path": "air_jepa/stage0_workspace/manifests/air_final.jsonl",
+      "rows": 900,
+      "sha256": "a7006f5775a3afd3a128e4aba0d5f59a7b058a6e263319433de91e9bfd12c54f",
+      "task_set_sha256": "f1f9bb77bdd3548aafaf20c18bb392b27a98a67cadd1861701d901cc43e59dd0"
+    },
+    "air_select": {
+      "by_size": {
+        "11": 100,
+        "13": 100,
+        "15": 100,
+        "17": 100,
+        "19": 100,
+        "21": 100,
+        "23": 100,
+        "25": 100,
+        "9": 100
+      },
+      "layout_set_sha256": "10fdc738fda42cb06ffe012189745bc089da7fddfab640bdc5b627c4f7170b4d",
+      "path": "air_jepa/stage0_workspace/manifests/air_select.jsonl",
+      "rows": 900,
+      "sha256": "2136a0700a55d4ab241ecb7336627e5db4098061d4deae8cbb7696a209f8e0a0",
+      "task_set_sha256": "d421f0000980f64b4708a17e6a9bc27ed682c01940f02c95347dcfbcf7532d6a"
+    },
+    "historical_confirm": {
+      "by_size": {
+        "11": 100,
+        "13": 100,
+        "15": 100,
+        "17": 100,
+        "19": 100,
+        "21": 100,
+        "23": 100,
+        "25": 100,
+        "9": 100
+      },
+      "layout_set_sha256": "08f4ebeb08863f6fc5a5cf5a3b2e2d845e6f57ddcc3f67210e50a5eed4b08998",
+      "path": "data/splits/spatial_jepa_confirm_eval_manifest.jsonl",
+      "rows": 900,
+      "sha256": "ca710c6fb5b39405052523e92536fba7f61303bb190dba4f749e11ee78a5e99b",
+      "task_set_sha256": "796046acf4c444a3114d9788b523c41c2dd4c73e3ac9cf6352c21f6b81b48cb9"
+    },
+    "historical_dev": {
+      "by_size": {
+        "11": 100,
+        "13": 100,
+        "15": 100,
+        "17": 100,
+        "19": 100,
+        "21": 100,
+        "23": 100,
+        "25": 100,
+        "9": 100
+      },
+      "layout_set_sha256": "e4ad10a0cf0e2f415c5e331820b8789b1a26a04215ccd3b77cf87638ebca09e8",
+      "path": "data/splits/unisize_eval_manifest.jsonl",
+      "rows": 900,
+      "sha256": "210e2de5aa5d9a688ff2fe60c4e8b85e11fa10b570d0ca3f4e72d8f173dbb8d9",
+      "task_set_sha256": "ef799ea6a36c44585b5cccaf828bd890a1248d509ac65dfc954b3526e9f43c05"
+    },
+    "preflight": {
+      "by_size": {
+        "11": 20,
+        "13": 20,
+        "15": 20,
+        "17": 20,
+        "19": 20,
+        "21": 20,
+        "9": 20
+      },
+      "layout_set_sha256": "f2de5f80bf75b474b5280cc41c2bf9b0cc0f62e0c8fb1723729c7d04d1c18e2e",
+      "path": "air_jepa/stage0_workspace/manifests/air_preflight.jsonl",
+      "rows": 140,
+      "sha256": "5ec562a83d81a7ecba4b4b57e2ca1875e8577db0814310a9eb78d31591e70839",
+      "task_set_sha256": "554dcb4503973c889b3cca29d040aed5624d219d6702577bcefc00ea543f82f8"
+    },
+    "train": {
+      "by_size": {
+        "11": 400,
+        "13": 400,
+        "15": 400,
+        "17": 400,
+        "19": 400,
+        "21": 400,
+        "9": 400
+      },
+      "layout_set_sha256": "3b6b0ed34c455faed7a9e402c6fb7394e6f3e53ce18681754541b30794ebef0c",
+      "path": "data/splits/unisize_train_manifest.jsonl",
+      "rows": 2800,
+      "sha256": "1c477db243752a614d569941da6ca9be5c8fb19099295769c1c4dce9250a05f6",
+      "task_set_sha256": "df3919eed93f977f87a71db336b37139b5ad2bb79cee7082361195113fe0a027"
+    }
+  },
+  "matrix": {
+    "air_dev_corrected": [
+      {
+        "action_protocol": "corrected",
+        "k": 4,
+        "method": "j0_static",
+        "seed": 42
+      },
+      {
+        "action_protocol": "corrected",
+        "k": 128,
+        "method": "j1_static",
+        "seed": 42
+      },
+      {
+        "action_protocol": "corrected",
+        "k": 128,
+        "method": "j1_receding",
+        "seed": 42
+      },
+      {
+        "action_protocol": "corrected",
+        "k": 128,
+        "method": "air0_direct",
+        "seed": 42
+      },
+      {
+        "action_protocol": "corrected",
+        "k": 128,
+        "method": "air0_jepa",
+        "seed": 42
+      },
+      {
+        "action_protocol": "corrected",
+        "k": 4,
+        "method": "j0_static",
+        "seed": 43
+      },
+      {
+        "action_protocol": "corrected",
+        "k": 128,
+        "method": "j1_static",
+        "seed": 43
+      },
+      {
+        "action_protocol": "corrected",
+        "k": 128,
+        "method": "j1_receding",
+        "seed": 43
+      },
+      {
+        "action_protocol": "corrected",
+        "k": 128,
+        "method": "air0_direct",
+        "seed": 43
+      },
+      {
+        "action_protocol": "corrected",
+        "k": 128,
+        "method": "air0_jepa",
+        "seed": 43
+      },
+      {
+        "action_protocol": "corrected",
+        "k": 4,
+        "method": "j0_static",
+        "seed": 44
+      },
+      {
+        "action_protocol": "corrected",
+        "k": 128,
+        "method": "j1_static",
+        "seed": 44
+      },
+      {
+        "action_protocol": "corrected",
+        "k": 128,
+        "method": "j1_receding",
+        "seed": 44
+      },
+      {
+        "action_protocol": "corrected",
+        "k": 128,
+        "method": "air0_direct",
+        "seed": 44
+      },
+      {
+        "action_protocol": "corrected",
+        "k": 128,
+        "method": "air0_jepa",
+        "seed": 44
+      }
+    ],
+    "air_dev_unmasked": [
+      {
+        "action_protocol": "unmasked",
+        "k": 1,
+        "method": "j1_receding",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 4,
+        "method": "j1_receding",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 8,
+        "method": "j1_receding",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 16,
+        "method": "j1_receding",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 32,
+        "method": "j1_receding",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 64,
+        "method": "j1_receding",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 128,
+        "method": "j1_receding",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 1,
+        "method": "air0_direct",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 4,
+        "method": "air0_direct",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 8,
+        "method": "air0_direct",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 16,
+        "method": "air0_direct",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 32,
+        "method": "air0_direct",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 64,
+        "method": "air0_direct",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 128,
+        "method": "air0_direct",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 1,
+        "method": "air0_jepa",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 4,
+        "method": "air0_jepa",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 8,
+        "method": "air0_jepa",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 16,
+        "method": "air0_jepa",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 32,
+        "method": "air0_jepa",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 64,
+        "method": "air0_jepa",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 128,
+        "method": "air0_jepa",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 1,
+        "method": "j1_receding",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 4,
+        "method": "j1_receding",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 8,
+        "method": "j1_receding",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 16,
+        "method": "j1_receding",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 32,
+        "method": "j1_receding",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 64,
+        "method": "j1_receding",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 128,
+        "method": "j1_receding",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 1,
+        "method": "air0_direct",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 4,
+        "method": "air0_direct",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 8,
+        "method": "air0_direct",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 16,
+        "method": "air0_direct",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 32,
+        "method": "air0_direct",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 64,
+        "method": "air0_direct",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 128,
+        "method": "air0_direct",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 1,
+        "method": "air0_jepa",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 4,
+        "method": "air0_jepa",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 8,
+        "method": "air0_jepa",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 16,
+        "method": "air0_jepa",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 32,
+        "method": "air0_jepa",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 64,
+        "method": "air0_jepa",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 128,
+        "method": "air0_jepa",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 1,
+        "method": "j1_receding",
+        "seed": 44
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 4,
+        "method": "j1_receding",
+        "seed": 44
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 8,
+        "method": "j1_receding",
+        "seed": 44
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 16,
+        "method": "j1_receding",
+        "seed": 44
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 32,
+        "method": "j1_receding",
+        "seed": 44
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 64,
+        "method": "j1_receding",
+        "seed": 44
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 128,
+        "method": "j1_receding",
+        "seed": 44
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 1,
+        "method": "air0_direct",
+        "seed": 44
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 4,
+        "method": "air0_direct",
+        "seed": 44
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 8,
+        "method": "air0_direct",
+        "seed": 44
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 16,
+        "method": "air0_direct",
+        "seed": 44
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 32,
+        "method": "air0_direct",
+        "seed": 44
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 64,
+        "method": "air0_direct",
+        "seed": 44
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 128,
+        "method": "air0_direct",
+        "seed": 44
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 1,
+        "method": "air0_jepa",
+        "seed": 44
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 4,
+        "method": "air0_jepa",
+        "seed": 44
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 8,
+        "method": "air0_jepa",
+        "seed": 44
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 16,
+        "method": "air0_jepa",
+        "seed": 44
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 32,
+        "method": "air0_jepa",
+        "seed": 44
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 64,
+        "method": "air0_jepa",
+        "seed": 44
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 128,
+        "method": "air0_jepa",
+        "seed": 44
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 4,
+        "method": "j0_static",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 4,
+        "method": "j0_static",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 4,
+        "method": "j0_static",
+        "seed": 44
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 128,
+        "method": "j1_static",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 128,
+        "method": "j1_static",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 128,
+        "method": "j1_static",
+        "seed": 44
+      }
+    ],
+    "air_early_context": [
+      {
+        "action_protocol": "unmasked",
+        "intervention": "normal",
+        "k": 16,
+        "method": "j1_receding",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "intervention": "normal",
+        "k": 128,
+        "method": "j1_receding",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "intervention": "normal",
+        "k": 16,
+        "method": "air0_direct",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "intervention": "normal",
+        "k": 128,
+        "method": "air0_direct",
+        "seed": 42
+      }
+    ],
+    "air_early_diagnostics": [
+      {
+        "k": 128,
+        "method": "air0_jepa",
+        "seed": 42,
+        "states_per_maze": 24
+      }
+    ],
+    "air_early_interventions": [
+      {
+        "action_protocol": "unmasked",
+        "intervention": "normal",
+        "k": 16,
+        "method": "air0_jepa",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "intervention": "copy_current",
+        "k": 16,
+        "method": "air0_jepa",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "intervention": "true_future",
+        "k": 16,
+        "method": "air0_jepa",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "intervention": "future_permutation",
+        "k": 16,
+        "method": "air0_jepa",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "intervention": "future_zero",
+        "k": 16,
+        "method": "air0_jepa",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "intervention": "normal",
+        "k": 128,
+        "method": "air0_jepa",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "intervention": "copy_current",
+        "k": 128,
+        "method": "air0_jepa",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "intervention": "true_future",
+        "k": 128,
+        "method": "air0_jepa",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "intervention": "future_permutation",
+        "k": 128,
+        "method": "air0_jepa",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "intervention": "future_zero",
+        "k": 128,
+        "method": "air0_jepa",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "intervention": "normal",
+        "k": 16,
+        "method": "air0_jepa",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "intervention": "copy_current",
+        "k": 16,
+        "method": "air0_jepa",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "intervention": "true_future",
+        "k": 16,
+        "method": "air0_jepa",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "intervention": "future_permutation",
+        "k": 16,
+        "method": "air0_jepa",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "intervention": "future_zero",
+        "k": 16,
+        "method": "air0_jepa",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "intervention": "normal",
+        "k": 128,
+        "method": "air0_jepa",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "intervention": "copy_current",
+        "k": 128,
+        "method": "air0_jepa",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "intervention": "true_future",
+        "k": 128,
+        "method": "air0_jepa",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "intervention": "future_permutation",
+        "k": 128,
+        "method": "air0_jepa",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "intervention": "future_zero",
+        "k": 128,
+        "method": "air0_jepa",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "intervention": "normal",
+        "k": 16,
+        "method": "air0_jepa",
+        "seed": 44
+      },
+      {
+        "action_protocol": "unmasked",
+        "intervention": "copy_current",
+        "k": 16,
+        "method": "air0_jepa",
+        "seed": 44
+      },
+      {
+        "action_protocol": "unmasked",
+        "intervention": "true_future",
+        "k": 16,
+        "method": "air0_jepa",
+        "seed": 44
+      },
+      {
+        "action_protocol": "unmasked",
+        "intervention": "future_permutation",
+        "k": 16,
+        "method": "air0_jepa",
+        "seed": 44
+      },
+      {
+        "action_protocol": "unmasked",
+        "intervention": "future_zero",
+        "k": 16,
+        "method": "air0_jepa",
+        "seed": 44
+      },
+      {
+        "action_protocol": "unmasked",
+        "intervention": "normal",
+        "k": 128,
+        "method": "air0_jepa",
+        "seed": 44
+      },
+      {
+        "action_protocol": "unmasked",
+        "intervention": "copy_current",
+        "k": 128,
+        "method": "air0_jepa",
+        "seed": 44
+      },
+      {
+        "action_protocol": "unmasked",
+        "intervention": "true_future",
+        "k": 128,
+        "method": "air0_jepa",
+        "seed": 44
+      },
+      {
+        "action_protocol": "unmasked",
+        "intervention": "future_permutation",
+        "k": 128,
+        "method": "air0_jepa",
+        "seed": 44
+      },
+      {
+        "action_protocol": "unmasked",
+        "intervention": "future_zero",
+        "k": 128,
+        "method": "air0_jepa",
+        "seed": 44
+      }
+    ],
+    "diagnostics": [
+      {
+        "k": 128,
+        "method": "air0_jepa",
+        "seed": 42,
+        "states_per_maze": 24
+      },
+      {
+        "k": 128,
+        "method": "air0_jepa",
+        "seed": 43,
+        "states_per_maze": 24
+      },
+      {
+        "k": 128,
+        "method": "air0_jepa",
+        "seed": 44,
+        "states_per_maze": 24
+      }
+    ],
+    "evaluator_oracle": [
+      {
+        "action_protocol": "unmasked",
+        "max_steps": 128,
+        "method": "oracle_bfs",
+        "split_role": "air_dev"
+      }
+    ],
+    "historical_bridges": [
+      {
+        "action_protocol": "unmasked",
+        "k": 4,
+        "method": "j0_static",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 128,
+        "method": "j1_static",
+        "seed": 42
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 4,
+        "method": "j0_static",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 128,
+        "method": "j1_static",
+        "seed": 43
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 4,
+        "method": "j0_static",
+        "seed": 44
+      },
+      {
+        "action_protocol": "unmasked",
+        "k": 128,
+        "method": "j1_static",
+        "seed": 44
+      }
+    ],
+    "train": [
+      {
+        "method": "air0_direct",
+        "seed": 42,
+        "steps": 30000
+      },
+      {
+        "method": "air0_jepa",
+        "seed": 42,
+        "steps": 30000
+      },
+      {
+        "method": "air0_direct",
+        "seed": 43,
+        "steps": 30000
+      },
+      {
+        "method": "air0_jepa",
+        "seed": 43,
+        "steps": 30000
+      },
+      {
+        "method": "air0_direct",
+        "seed": 44,
+        "steps": 30000
+      },
+      {
+        "method": "air0_jepa",
+        "seed": 44,
+        "steps": 30000
+      }
+    ]
+  },
+  "pairwise_holdout": {
+    "air_dev__air_final": {
+      "layout": 0,
+      "task": 0,
+      "topology": 0
+    },
+    "air_dev__air_select": {
+      "layout": 0,
+      "task": 0,
+      "topology": 0
+    },
+    "air_select__air_final": {
+      "layout": 0,
+      "task": 0,
+      "topology": 0
+    },
+    "historical_confirm__air_dev": {
+      "layout": 0,
+      "task": 0,
+      "topology": 0
+    },
+    "historical_confirm__air_final": {
+      "layout": 0,
+      "task": 0,
+      "topology": 0
+    },
+    "historical_confirm__air_select": {
+      "layout": 0,
+      "task": 0,
+      "topology": 0
+    },
+    "historical_dev__air_dev": {
+      "layout": 0,
+      "task": 0,
+      "topology": 0
+    },
+    "historical_dev__air_final": {
+      "layout": 0,
+      "task": 0,
+      "topology": 0
+    },
+    "historical_dev__air_select": {
+      "layout": 0,
+      "task": 0,
+      "topology": 0
+    },
+    "historical_dev__historical_confirm": {
+      "layout": 0,
+      "task": 0,
+      "topology": 0
+    },
+    "train__air_dev": {
+      "layout": 0,
+      "task": 0,
+      "topology": 0
+    },
+    "train__air_final": {
+      "layout": 0,
+      "task": 0,
+      "topology": 0
+    },
+    "train__air_select": {
+      "layout": 0,
+      "task": 0,
+      "topology": 0
+    },
+    "train__historical_confirm": {
+      "layout": 0,
+      "task": 0,
+      "topology": 0
+    },
+    "train__historical_dev": {
+      "layout": 0,
+      "task": 0,
+      "topology": 0
+    }
+  },
+  "protocol_sha256": "822b88c64f3afc678de19763844441c1ea99d24140cb401c686724a5f49f8261",
+  "schema": "air-jepa-stage0-protocol-lock-v1",
+  "sealed_roles": [
+    "air_final",
+    "air_select"
+  ]
+}

@@ -30,12 +30,12 @@
 - **批次采样策略** — `same_within_batch` 和 `different_within_batch`，用于可控的 IID/OOD 数据生成。
 
 ### 实验
-- `experiments/` 下的完整评估流程：跨模型、环境和 VICReg 设置的 IID vs OOD 对比（总计 48 次运行）。
-- 产出：热力图 (`outputs/heatmaps/`)、规划动画 (`outputs/planning_gifs/`) 和[最终报告](experiments/outputs/final_report.md)。
+- 上游项目曾完成跨模型、环境和 VICReg 设置的 IID vs OOD 对比（总计 48 次运行）。
+  原始 `experiments/` 流程及其生成报告未包含在当前 checkout 中。
 
 ## 核心发现
 
-详见[最终报告](experiments/outputs/final_report.md)：
+该上游实验在本 README 中保留的历史摘要如下：
 
 | 指标 | 无 VICReg | 有 VICReg |
 |------|----------|----------|
@@ -76,4 +76,7 @@ python -m pytest -q
 - [`planning_repair/`](planning_repair/)：P0-P2 修复矩阵。
 - [`spatial_jepa_planning/`](spatial_jepa_planning/)：下一阶段 full-resolution Spatial-JEPA 与迭代规划实验，包含 protocol lock、多 seed 配对评估和 oracle 对照。
 - [`final_closure/`](final_closure/)：固定的论文闭环基线、provenance 校验、统计分析与不可变 completion gate。
+- [`air_jepa/`](air_jepa/)：分阶段的 AIR-JEPA 激进架构研究。Stage 0 冻结已验证的
+  Spatial-JEPA 表征，用严格配对训练、封存数据角色、future 因果干预和分数无关的
+  四 GPU DAG 检验共享 goal/action/future 循环 workspace。
 - [`research_notes/pure_jepa_frontier_directions.zh.md`](research_notes/pure_jepa_frontier_directions.zh.md)：纯 JEPA 潜空间规划的性能上限与泛化边界研究备忘录；它是开放的研究思路，不是已经执行的实验或锁定协议。
