@@ -32,12 +32,13 @@ Diff: `hdwm-origin/` vs current tree.
 - **Batch sampling strategies** — `same_within_batch` and `different_within_batch` for controlled IID/OOD data generation.
 
 ### Experiments
-- Full evaluation pipeline under `experiments/`: IID vs OOD comparison across models, environments, and VICReg settings (48 runs total).
-- Outputs: heatmaps (`outputs/heatmaps/`), planning animations (`outputs/planning_gifs/`), and a [final report](experiments/outputs/final_report.md).
+- The upstream project ran an IID vs OOD comparison across models,
+  environments, and VICReg settings (48 runs total). Its original
+  `experiments/` pipeline and generated report are not bundled in this checkout.
 
 ## Key Findings
 
-From the [final report](experiments/outputs/final_report.md):
+The historical summary recorded for that upstream experiment is:
 
 | Metric | without VICReg | with VICReg |
 |--------|---------------|-------------|
@@ -82,6 +83,10 @@ python -m pytest -q
   protocol locks, multi-seed paired evaluation, and oracle controls.
 - [`final_closure/`](final_closure/) contains the fixed paper-closure baselines,
   provenance checks, statistical analysis, and immutable completion gate.
+- [`air_jepa/`](air_jepa/) contains the staged AIR-JEPA architecture program.
+  Stage 0 freezes the validated Spatial-JEPA representation and tests a shared
+  recurrent goal/action/future workspace under paired training, sealed data
+  roles, causal future interventions, and a score-independent four-GPU DAG.
 - [`research_notes/pure_jepa_frontier_directions.zh.md`](research_notes/pure_jepa_frontier_directions.zh.md)
   is a Chinese research memo on open directions for the capability frontier and
   generalization boundaries of pure JEPA latent planning. It is not an executed
